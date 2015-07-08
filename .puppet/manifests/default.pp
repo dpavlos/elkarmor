@@ -14,6 +14,20 @@ yumrepo { 'logstash-1.5':
 -> package { 'logstash':
   require => Package['java'],
 }
+-> service { 'logstash':
+  ensure => running,
+  enable => true,
+}
+
+file { 'logstash-io.conf':
+  path => '/etc/logstash/conf.d/io.conf',
+  ensure => file,
+  source => '/vagrant/.puppet/files/logstash-io.conf',
+  require => [
+    Package['logstash'], Service['elasticsearch']
+  ],
+  notify => Service['logstash'],
+}
 
 yumrepo { 'elasticsearch-1.6':
   descr => 'Elasticsearch 1.6.x repository',
