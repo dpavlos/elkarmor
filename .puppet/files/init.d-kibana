@@ -1,0 +1,5 @@
+#!/bin/bash
+# chkconfig:   2345 80 20
+set -e
+
+test start = "$1" && ( /opt/kibana/bin/kibana </dev/null &>/dev/null & )
