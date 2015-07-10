@@ -80,7 +80,24 @@ file { 'init.d-kibana':
   require => Exec['fetch-kibana'],
 }
 
-exec { 'iptables-allow-kibana':
-  unless => '/bin/grep -qFxe "-A INPUT -p tcp -m tcp --dport 5601 -j ACCEPT" /etc/sysconfig/iptables',
-  command => '/sbin/iptables -I INPUT -p tcp -m tcp --dport 5601 -j ACCEPT && /sbin/iptables-save >/etc/sysconfig/iptables',
+
+# HTTPd reverse proxy for Kibana
+
+package { 'httpd': }
+-> service { 'httpd':
+  ensure => running,
+  enable => true,
+}
+
+file { 'kibana-revproxy.conf':
+  path => '/etc/httpd/conf.d/kibana-revproxy.conf',
+  ensure => file,
+  source => '/vagrant/.puppet/files/httpd-kibana-revproxy.conf',
+  require => Package['httpd'],
+  notify => Service['httpd'],
+}
+
+exec { 'iptables-allow-httpd':
+  unless => '/bin/grep -qFxe "-A INPUT -p tcp -m tcp --dport 58080 -j ACCEPT" /etc/sysconfig/iptables',
+  command => '/sbin/iptables -I INPUT -p tcp -m tcp --dport 58080 -j ACCEPT && /sbin/iptables-save >/etc/sysconfig/iptables',
 }
