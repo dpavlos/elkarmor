@@ -1,6 +1,11 @@
+# Java
+
 package { 'java':
   name => 'java-1.7.0-openjdk',
 }
+
+
+# Logstash
 
 yumrepo { 'logstash-1.5':
   descr => 'logstash 1.5.x repository',
@@ -29,6 +34,9 @@ file { 'logstash-io.conf':
   notify => Service['logstash'],
 }
 
+
+# Elasticsearch
+
 yumrepo { 'elasticsearch-1.6':
   descr => 'Elasticsearch 1.6.x repository',
   target => 'elasticsearch.repo',
@@ -45,6 +53,9 @@ yumrepo { 'elasticsearch-1.6':
   ensure => running,
   enable => true,
 }
+
+
+# Kibana
 
 file { 'kibana-dir':
   path => '/opt/kibana',
