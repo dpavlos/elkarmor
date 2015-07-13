@@ -89,7 +89,8 @@ package { 'httpd': }
   enable => true,
 }
 
-file { 'kibana-revproxy.conf':
+package { 'mod_ssl': }
+-> file { 'kibana-revproxy.conf':
   path => '/etc/httpd/conf.d/kibana-revproxy.conf',
   ensure => file,
   source => '/vagrant/.puppet/files/httpd-kibana-revproxy.conf',
