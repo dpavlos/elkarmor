@@ -19,16 +19,66 @@
 
 
 import sys
+import os
+import re
+from errno import *
 from itertools import ifilter
 from time import sleep
+from os import path
+from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
 from daemon import UnixDaemon, get_daemon_option_parser
+
+
+ECFGDIR = 1
+ECFGIO = 2
+ECFGSYN = 3
+ECFGSEM = 4
+
+
+class ELKProxyInternalError(Exception):
+    def __init__(self, errno):
+        self.errno = errno
+        super(ELKProxyInternalError, self).__init__()
 
 
 class ELKProxyDaemon(UnixDaemon):
     name = 'ELK Proxy'
 
+    def __init__(self, *args, **kwargs):
+        self._cfgdir = kwargs.pop('cfgdir')
+        self._cfg = {}
+        super(ELKProxyDaemon, self).__init__(*args, **kwargs)
+
     def before_daemonize(self):
-        pass
+        if not os.access(self._cfgdir, os.R_OK | os.X_OK):
+            raise ELKProxyInternalError(ECFGDIR)
+
+        cfg = {}
+        for cfn in ('config', 'restrictions'):
+            cfp = path.join(self._cfgdir, '{}.ini'.format(cfn))
+            try:
+                cf = open(cfp, 'r')
+            except IOError as e:
+                if cfn == 'restrictions' and e.errno == ENOENT:
+                    cfg[cfn] = {}
+                    continue
+                raise ELKProxyInternalError((ECFGIO, e.errno, cfp))
+
+            cfgParser = ConfigParser()
+            with cf as cf:
+                try:
+                    cfgParser.readfp(cf)
+                except ConfigParserError as e:
+                    raise ELKProxyInternalError((ECFGSYN, e, cfp))
+
+            cfg[cfn] = dict(((section, dict(cfgParser.items(section, True))) for section in cfgParser.sections()))
+
+        cfg['config']['restrictions'] = cfg['restrictions']
+        cfg = cfg['config']
+
+        # TODO: validate
+
+        self._cfg = cfg
 
     def run(self):
         while True:
@@ -36,8 +86,25 @@ class ELKProxyDaemon(UnixDaemon):
 
 
 def main():
-    opts, args = get_daemon_option_parser().parse_args()
-    return getattr(ELKProxyDaemon(**dict(ifilter((lambda x: x[1] is not None), vars(opts).iteritems()))), args[0])()
+    parser = get_daemon_option_parser()
+    for option_group in parser.option_groups:
+        if option_group.title == 'Start':
+            option_group.add_option(
+                '-c', '--cfgdir',
+                dest='cfgdir', metavar='DIR', default='/etc/elkproxy', help='read configuration from directory DIR'
+            )
+            break
+    opts, args = parser.parse_args()
+    try:
+        return getattr(ELKProxyDaemon(**dict(ifilter((lambda x: x[1] is not None), vars(opts).iteritems()))), args[0])()
+    except ELKProxyInternalError as e:
+        try:
+            errno = e.errno[0]
+        except TypeError:
+            errno = e.errno
+
+        # TODO: handle errors
+        raise
 
 
 if __name__ == '__main__':
