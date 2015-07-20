@@ -35,6 +35,42 @@ ECFGSYN = 3
 ECFGSEM = 4
 
 
+def parseSplit(subj, sep, esc='\\'):
+    """
+    Parse subj as a list of strings separated by sep.
+        parseSplit('a,b', ',') -> 'a', 'b'
+    To get a literal sep inside a list's item, prepend an esc.
+        parseSplit('\\,', ',') -> ','
+    To get a literal esc, double it.
+        parseSplit('\\\\', ',') -> '\\'
+
+    :type subj: str
+    :type sep: str
+    :type esc: str
+    """
+
+    carry = False
+    cur = ''
+    c = None
+
+    for c in subj:
+        if carry:
+            cur += c if c in (esc, sep) else esc + c
+            carry = False
+        elif c == esc:
+            carry = True
+        elif c == sep:
+            yield cur
+            cur = ''
+        else:
+            cur += c
+
+    if c is not None:
+        if carry:
+            cur += esc
+        yield cur
+
+
 class ELKProxyInternalError(Exception):
     def __init__(self, errno):
         self.errno = errno
