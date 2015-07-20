@@ -22,7 +22,7 @@ import sys
 import os
 import re
 from errno import *
-from itertools import ifilter
+from itertools import ifilter, imap
 from time import sleep
 from os import path
 from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
@@ -91,7 +91,7 @@ class ELKProxyDaemon(UnixDaemon):
 
         cfg = {}
         for cfn in ('config', 'restrictions'):
-            cfp = path.join(self._cfgdir, '{}.ini'.format(cfn))
+            cfp = path.join(self._cfgdir, '{0}.ini'.format(cfn))
             try:
                 cf = open(cfp, 'r')
             except IOError as e:
@@ -109,14 +109,24 @@ class ELKProxyDaemon(UnixDaemon):
 
             cfg[cfn] = dict(((section, dict(cfgParser.items(section, True))) for section in cfgParser.sections()))
 
-        cfg['config']['restrictions'] = cfg['restrictions']
-        cfg = cfg['config']
-
         # TODO: validate
 
-        self._cfg = cfg
+        for (cfn, cfo) in cfg.iteritems():
+            setattr(self, '_' + cfn, cfo)
 
     def run(self):
+        restrictions = {'users': {}, 'group': {}}
+        for (name, restriction) in self._restrictions.iteritems():
+            idx = restriction.pop('index', '').strip()
+            if idx:
+                for (opt, sep) in (('users', ','), ('group', '|')):
+                    for val in ifilter(None, imap(str.strip, parseSplit(restriction.pop(opt, ''), sep))):
+                        if val in restrictions[opt]:
+                            if idx not in restrictions[opt][val]:
+                                restrictions[opt][val].append(idx)
+                        else:
+                            restrictions[opt][val] = [idx]
+
         while True:
             sleep(86400)
 
