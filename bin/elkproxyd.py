@@ -22,13 +22,16 @@ import sys
 import os
 import re
 from errno import *
-from itertools import ifilter, imap
+from itertools import ifilter, imap, islice
 from time import sleep
 from os import path
-from socket import inet_aton, inet_pton, inet_ntop, AF_INET, error as SocketError
+from subprocess import Popen, PIPE
+from socket import inet_aton, inet_pton, inet_ntop, AF_INET, AF_INET6, error as SocketError
 from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
 from daemon import UnixDaemon, get_daemon_option_parser
 
+
+DEVNULL = open(os.devnull, 'r+b')
 
 ECFGDIR = 1
 ECFGIO = 2
@@ -105,8 +108,12 @@ class ELKProxyDaemon(UnixDaemon):
         super(ELKProxyDaemon, self).__init__(*args, **kwargs)
 
     def before_daemonize(self):
+        # Check whether the config directory is present and accessible
+
         if not os.access(self._cfgdir, os.R_OK | os.X_OK):
             raise ELKProxyInternalError(ECFGDIR)
+
+        # Check whether all required config files are present and (syntactically) valid
 
         cfg = {}
         for cfn in ('config', 'restrictions'):
@@ -128,10 +135,134 @@ class ELKProxyDaemon(UnixDaemon):
 
             cfg[cfn] = dict(((section, dict(cfgParser.items(section, True))) for section in cfgParser.sections()))
 
-        # TODO: validate
+        self._restrictions = cfg['restrictions']
 
-        for (cfn, cfo) in cfg.iteritems():
-            setattr(self, '_' + cfn, cfo)
+        # Validate configuration
+
+        ## Network I/O
+
+        netio = cfg['config'].pop('netio', {})
+
+        ### Check for non-empty Elasticsearch URL
+
+        elsrchURL = netio.pop('elasticsearch', '').strip()
+        if not elsrchURL:
+            raise ELKProxyInternalError((ECFGSEM, 'net-elsrch'))
+
+        self._elsrchURL = elsrchURL
+
+
+        if not netio:
+            raise ELKProxyInternalError((ECFGSEM, 'net-listen'))
+
+        ### Resolve all net interfaces' IP (v4 and v6) addresses
+
+        rWord = re.compile(r'\S+')
+        families = {'inet': 4, 'inet6': 6}
+
+        p = Popen(
+            ['ip', '-o', 'addr', 'show'],
+            stdin=DEVNULL,
+            stdout=PIPE,
+            universal_newlines=True
+        )
+
+        resolve = {}
+        try:
+            for (iface, af, ipaddr) in imap(
+                (lambda line: tuple(imap((lambda x: x.group(0)), islice(rWord.finditer(line), 1, 4)))),
+                ifilter(None, imap(str.strip, p.stdout))
+            ):
+                try:
+                    af = families[af]
+                except KeyError:
+                    continue
+
+                ip = normalizeIP(AF_INET if af == 4 else AF_INET6, ipaddr.rsplit('/', 1)[0])
+                if ip is None:
+                    raise ELKProxyInternalError((ECFGSEM, 'net-proc-ip', af, iface, ipaddr))
+
+                if iface in resolve:
+                    resolve[iface][af] = ip
+                else:
+                    resolve[iface] = {af: ip}
+        finally:
+            if p.wait():
+                raise ELKProxyInternalError((ECFGSEM, 'net-proc'))
+
+        ### Collect all net interfaces w/o an IP address
+
+        rNetDev = re.compile(r'(\S+):')
+
+        try:
+            netDev = open('/proc/net/dev')
+        except IOError:
+            raise ELKProxyInternalError((ECFGSEM, 'net-dev'))
+
+        with netDev as netDev:
+            for iface in imap(
+                (lambda x: x.group(1)),
+                ifilter(None, imap(rNetDev.match, ifilter(None, imap(str.strip, netDev))))
+            ):
+                if iface not in resolve:
+                    resolve[iface] = {}
+
+        ### Validate addresses and interfaces
+
+        rAddr = re.compile(r'(.+):(\d+)(?!.)')
+        rAddr6 = re.compile(r'\[(.+)\](?!.)')
+
+        listen = {}
+        for (afn, afs, af) in ((4, '', AF_INET), (6, '6', AF_INET6)):
+            listen[afn] = {}
+            for SSL in ('', '-ssl'):
+                for addr in ifilter(None, imap(str.strip, parseSplit(
+                    netio.pop('inet{0}{1}'.format(afs, SSL), ''), ','
+                ))):
+                    m = rAddr.match(addr)
+                    if not m:
+                        raise ELKProxyInternalError((ECFGSEM, 'net-fmt', addr))
+
+                    ip, port = m.groups()
+                    port = int(port)
+                    if port > 65535:
+                        raise ELKProxyInternalError((ECFGSEM, 'net-port', port, addr))
+
+                    allowIP = allowIFace = True
+                    if afn == 6:
+                        m = rAddr6.match(ip)
+                        if m:
+                            ip = m.group(1)
+                            allowIFace = False
+                        else:
+                            allowIP = False
+
+                    if allowIFace and ip in resolve:
+                        if afn not in resolve[ip]:
+                            raise ELKProxyInternalError((ECFGSEM, 'net-af', af, ip))
+
+                        ip = resolve[ip][afn]
+                    elif allowIP:
+                        nIP = normalizeIP(af, ip)
+                        if nIP is None:
+                            raise ELKProxyInternalError((ECFGSEM, 'net-ip', afn, ip))
+
+                        ip = nIP
+                    else:
+                        raise ELKProxyInternalError((ECFGSEM, 'net-iface', ip))
+
+                    nAddr = (ip, port)
+                    if nAddr in listen[afn]:
+                        raise ELKProxyInternalError((ECFGSEM, 'net-alrdy', addr))
+
+                    listen[afn][nAddr] = bool(SSL)
+            if not listen[afn]:
+                del listen[afn]
+
+        if not listen:
+            raise ELKProxyInternalError((ECFGSEM, 'net-listen'))
+
+        self._listen = listen
 
     def run(self):
         restrictions = {'users': {}, 'group': {}}
