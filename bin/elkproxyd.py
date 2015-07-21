@@ -25,6 +25,7 @@ from errno import *
 from itertools import ifilter, imap
 from time import sleep
 from os import path
+from socket import inet_aton, inet_pton, inet_ntop, AF_INET, error as SocketError
 from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
 from daemon import UnixDaemon, get_daemon_option_parser
 
@@ -69,6 +70,24 @@ def parseSplit(subj, sep, esc='\\'):
         if carry:
             cur += esc
         yield cur
+
+
+def normalizeIP(af, ip):
+    """
+    Return normalized IP address. If the address is invalid, return None.
+        127.1 -> 127.0.0.1
+        0000:0000:0000:0000:0000:0000:0000:0001 -> ::1
+
+    :param af: address family (AF_INET or AF_INET6)
+    :param ip: address
+    :type ip: str
+    :rtype: str|NoneType
+    """
+
+    try:
+        return inet_ntop(af, inet_aton(ip) if af == AF_INET else inet_pton(af, ip))
+    except (SocketError, ValueError):
+        return None
 
 
 class ELKProxyInternalError(Exception):
