@@ -22,11 +22,11 @@ import sys
 import os
 import re
 from errno import *
-from itertools import ifilter, imap, islice
+from itertools import ifilter, imap, islice, chain
 from time import sleep
 from os import path
 from subprocess import Popen, PIPE
-from socket import inet_aton, inet_pton, inet_ntop, AF_INET, AF_INET6, error as SocketError
+from socket import inet_aton, inet_pton, inet_ntop, AF_INET, AF_INET6, error as SocketError, getaddrinfo
 from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
 from daemon import UnixDaemon, get_daemon_option_parser
 
@@ -263,6 +263,47 @@ class ELKProxyDaemon(UnixDaemon):
             raise ELKProxyInternalError(ECFGSEM, 'net-listen')
 
         self._listen = listen
+
+        ## LDAP
+
+        ldap = cfg['config'].pop('ldap', {})
+
+        ### Host
+
+        host = ldap.pop('host', '').strip() or 'localhost'
+
+        try:
+            getaddrinfo(host, None)
+        except SocketError:
+            raise ELKProxyInternalError(ECFGSEM, 'ldap-host', host)
+
+        ### SSL
+
+        SSL = ldap.pop('ssl', '').strip() or 'off'
+
+        try:
+            SSL = {'off': False, 'on': True, 'starttls': 'starttls'}[SSL]
+        except KeyError:
+            raise ELKProxyInternalError(ECFGSEM, 'ldap-ssl', SSL)
+
+        ### Port
+
+        port = ldap.pop('port', '').strip() or (636 if SSL is True else 389)
+
+        try:
+            port = int(port)
+        except ValueError:
+            raise ELKProxyInternalError(ECFGSEM, 'ldap-port', port)
+
+        if port > 65535:
+            raise ELKProxyInternalError(ECFGSEM, 'ldap-port', port)
+
+        ### Username, password and root DN
+
+        self._ldap = dict(chain(
+            (('host', host), ('port', port), ('ssl', SSL)),
+            ((k, (str if k == 'pass' else str.strip)(ldap.pop(k, ''))) for k in ('user', 'pass', 'rootdn'))
+        ))
 
     def run(self):
         restrictions = {'users': {}, 'group': {}}
