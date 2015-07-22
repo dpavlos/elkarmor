@@ -94,8 +94,8 @@ def normalizeIP(af, ip):
 
 
 class ELKProxyInternalError(Exception):
-    def __init__(self, errno):
-        self.errno = errno
+    def __init__(self, errno, *args):
+        self.errno = (errno,) + args
         super(ELKProxyInternalError, self).__init__()
 
 
@@ -124,14 +124,14 @@ class ELKProxyDaemon(UnixDaemon):
                 if cfn == 'restrictions' and e.errno == ENOENT:
                     cfg[cfn] = {}
                     continue
-                raise ELKProxyInternalError((ECFGIO, e.errno, cfp))
+                raise ELKProxyInternalError(ECFGIO, e.errno, cfp)
 
             cfgParser = ConfigParser()
             with cf as cf:
                 try:
                     cfgParser.readfp(cf)
                 except ConfigParserError as e:
-                    raise ELKProxyInternalError((ECFGSYN, e, cfp))
+                    raise ELKProxyInternalError(ECFGSYN, e, cfp)
 
             cfg[cfn] = dict(((section, dict(cfgParser.items(section, True))) for section in cfgParser.sections()))
 
@@ -147,13 +147,13 @@ class ELKProxyDaemon(UnixDaemon):
 
         elsrchURL = netio.pop('elasticsearch', '').strip()
         if not elsrchURL:
-            raise ELKProxyInternalError((ECFGSEM, 'net-elsrch'))
+            raise ELKProxyInternalError(ECFGSEM, 'net-elsrch')
 
         self._elsrchURL = elsrchURL
 
 
         if not netio:
-            raise ELKProxyInternalError((ECFGSEM, 'net-listen'))
+            raise ELKProxyInternalError(ECFGSEM, 'net-listen')
 
         ### Resolve all net interfaces' IP (v4 and v6) addresses
 
@@ -180,7 +180,7 @@ class ELKProxyDaemon(UnixDaemon):
 
                 ip = normalizeIP(AF_INET if af == 4 else AF_INET6, ipaddr.rsplit('/', 1)[0])
                 if ip is None:
-                    raise ELKProxyInternalError((ECFGSEM, 'net-proc-ip', af, iface, ipaddr))
+                    raise ELKProxyInternalError(ECFGSEM, 'net-proc-ip', af, iface, ipaddr)
 
                 if iface in resolve:
                     resolve[iface][af] = ip
@@ -188,7 +188,7 @@ class ELKProxyDaemon(UnixDaemon):
                     resolve[iface] = {af: ip}
         finally:
             if p.wait():
-                raise ELKProxyInternalError((ECFGSEM, 'net-proc'))
+                raise ELKProxyInternalError(ECFGSEM, 'net-proc')
 
         ### Collect all net interfaces w/o an IP address
 
@@ -197,7 +197,7 @@ class ELKProxyDaemon(UnixDaemon):
         try:
             netDev = open('/proc/net/dev')
         except IOError:
-            raise ELKProxyInternalError((ECFGSEM, 'net-dev'))
+            raise ELKProxyInternalError(ECFGSEM, 'net-dev')
 
         with netDev as netDev:
             for iface in imap(
@@ -221,12 +221,12 @@ class ELKProxyDaemon(UnixDaemon):
                 ))):
                     m = rAddr.match(addr)
                     if not m:
-                        raise ELKProxyInternalError((ECFGSEM, 'net-fmt', addr))
+                        raise ELKProxyInternalError(ECFGSEM, 'net-fmt', addr)
 
                     ip, port = m.groups()
                     port = int(port)
                     if port > 65535:
-                        raise ELKProxyInternalError((ECFGSEM, 'net-port', port, addr))
+                        raise ELKProxyInternalError(ECFGSEM, 'net-port', port, addr)
 
                     allowIP = allowIFace = True
                     if afn == 6:
@@ -239,28 +239,28 @@ class ELKProxyDaemon(UnixDaemon):
 
                     if allowIFace and ip in resolve:
                         if afn not in resolve[ip]:
-                            raise ELKProxyInternalError((ECFGSEM, 'net-af', af, ip))
+                            raise ELKProxyInternalError(ECFGSEM, 'net-af', af, ip)
 
                         ip = resolve[ip][afn]
                     elif allowIP:
                         nIP = normalizeIP(af, ip)
                         if nIP is None:
-                            raise ELKProxyInternalError((ECFGSEM, 'net-ip', afn, ip))
+                            raise ELKProxyInternalError(ECFGSEM, 'net-ip', afn, ip)
 
                         ip = nIP
                     else:
-                        raise ELKProxyInternalError((ECFGSEM, 'net-iface', ip))
+                        raise ELKProxyInternalError(ECFGSEM, 'net-iface', ip)
 
                     nAddr = (ip, port)
                     if nAddr in listen[afn]:
-                        raise ELKProxyInternalError((ECFGSEM, 'net-alrdy', addr))
+                        raise ELKProxyInternalError(ECFGSEM, 'net-alrdy', addr)
 
                     listen[afn][nAddr] = bool(SSL)
             if not listen[afn]:
                 del listen[afn]
 
         if not listen:
-            raise ELKProxyInternalError((ECFGSEM, 'net-listen'))
+            raise ELKProxyInternalError(ECFGSEM, 'net-listen')
 
         self._listen = listen
 
@@ -294,10 +294,7 @@ def main():
     try:
         return getattr(ELKProxyDaemon(**dict(ifilter((lambda x: x[1] is not None), vars(opts).iteritems()))), args[0])()
     except ELKProxyInternalError as e:
-        try:
-            errno = e.errno[0]
-        except TypeError:
-            errno = e.errno
+        errno = e.errno[0]
 
         # TODO: handle errors
         raise
