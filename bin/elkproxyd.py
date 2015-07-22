@@ -26,6 +26,8 @@ from itertools import ifilter, imap, islice, chain
 from time import sleep
 from os import path
 from subprocess import Popen, PIPE
+from logging import Handler, CRITICAL, ERROR, WARNING, INFO, DEBUG
+from syslog import openlog, syslog, LOG_PID, LOG_CRIT, LOG_ERR, LOG_WARNING, LOG_INFO, LOG_DEBUG
 from socket import inet_aton, inet_pton, inet_ntop, AF_INET, AF_INET6, error as SocketError, getaddrinfo
 from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
 from daemon import UnixDaemon, get_daemon_option_parser
@@ -37,6 +39,14 @@ ECFGDIR = 1
 ECFGIO = 2
 ECFGSYN = 3
 ECFGSEM = 4
+
+syslogLvl = {
+    CRITICAL:   LOG_CRIT,
+    ERROR:      LOG_ERR,
+    WARNING:    LOG_WARNING,
+    INFO:       LOG_INFO,
+    DEBUG:      LOG_DEBUG
+}
 
 
 def parseSplit(subj, sep, esc='\\'):
@@ -91,6 +101,21 @@ def normalizeIP(af, ip):
         return inet_ntop(af, inet_aton(ip) if af == AF_INET else inet_pton(af, ip))
     except (SocketError, ValueError):
         return None
+
+
+class SysLogHandler(Handler):
+    def __init__(self, ident):
+        openlog(ident, LOG_PID)
+        Handler.__init__(self)
+
+    def emit(self, record):
+        msg = self.format(record)
+        try:
+            prio = syslogLvl[record.levelno]
+        except KeyError:
+            syslog(msg)
+        else:
+            syslog(prio, msg)
 
 
 class ELKProxyInternalError(Exception):
