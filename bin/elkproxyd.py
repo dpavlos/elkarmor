@@ -305,6 +305,34 @@ class ELKProxyDaemon(UnixDaemon):
             ((k, (str if k == 'pass' else str.strip)(ldap.pop(k, ''))) for k in ('user', 'pass', 'rootdn'))
         ))
 
+        ## Logging
+
+        log = cfg['config'].pop('log', {})
+
+        logging = {}
+        for (k, opts) in (
+            ('type', ('file', 'syslog')),
+            ('level', ('crit', 'err', 'warn', 'info', 'debug'))
+        ):
+            v = log.pop(k, '').strip()
+            if v not in opts:
+                raise ELKProxyInternalError(ECFGSEM, 'log-opt', k, v, opts)
+
+            logging[k] = v
+
+        if logging['type'] == 'file':
+            fpath = log.pop('path', '')
+            if not fpath:
+                raise ELKProxyInternalError(ECFGSEM, 'log-path')
+
+            logging['file'] = fpath
+        else:
+            logging['syslog'] = log.pop('prefix', '').strip() or None
+
+        del logging['type']
+
+        self._logging = logging
+
     def run(self):
         restrictions = {'users': {}, 'group': {}}
         for (name, restriction) in self._restrictions.iteritems():
