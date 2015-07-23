@@ -87,20 +87,23 @@ def parseSplit(subj, sep, esc='\\'):
 
 def normalizeIP(af, ip):
     """
-    Return normalized IP address. If the address is invalid, return None.
+    Normalize IP address.
         127.1 -> 127.0.0.1
         0000:0000:0000:0000:0000:0000:0000:0001 -> ::1
 
     :param af: address family (AF_INET or AF_INET6)
-    :param ip: address
+    :param ip: IP address
     :type ip: str
-    :rtype: str|NoneType
+
+    :returns: normalized IP address
+    :rtype: str
+    :raises: ValueError
     """
 
     try:
         return inet_ntop(af, inet_aton(ip) if af == AF_INET else inet_pton(af, ip))
     except (SocketError, ValueError):
-        return None
+        raise ValueError('{0} is not a valid IPv{1} address'.format(repr(ip), 4 if af == AF_INET else 6))
 
 
 class SysLogHandler(Handler):
@@ -203,8 +206,9 @@ class ELKProxyDaemon(UnixDaemon):
                 except KeyError:
                     continue
 
-                ip = normalizeIP(AF_INET if af == 4 else AF_INET6, ipaddr.rsplit('/', 1)[0])
-                if ip is None:
+                try:
+                    ip = normalizeIP(AF_INET if af == 4 else AF_INET6, ipaddr.rsplit('/', 1)[0])
+                except ValueError:
                     raise ELKProxyInternalError(ECFGSEM, 'net-proc-ip', af, iface, ipaddr)
 
                 if iface in resolve:
@@ -268,11 +272,10 @@ class ELKProxyDaemon(UnixDaemon):
 
                         ip = resolve[ip][afn]
                     elif allowIP:
-                        nIP = normalizeIP(af, ip)
-                        if nIP is None:
+                        try:
+                            ip = normalizeIP(af, ip)
+                        except ValueError:
                             raise ELKProxyInternalError(ECFGSEM, 'net-ip', afn, ip)
-
-                        ip = nIP
                     else:
                         raise ELKProxyInternalError(ECFGSEM, 'net-iface', ip)
 
@@ -298,10 +301,11 @@ class ELKProxyDaemon(UnixDaemon):
         host = ldap.pop('host', '').strip() or 'localhost'
 
         for af in (AF_INET6, AF_INET):
-            ip = normalizeIP(af, host)
-            if ip is not None:
-                host = ip
-                break
+            try:
+                host = normalizeIP(af, host)
+            except ValueError:
+                continue
+            break
         else:
             try:
                 getaddrinfo(host, None)
