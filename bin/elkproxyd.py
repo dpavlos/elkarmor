@@ -27,6 +27,8 @@ from time import sleep
 from os import path
 from datetime import datetime
 from subprocess import Popen, PIPE
+from wsgiref.simple_server import WSGIServer
+from ssl import wrap_socket, CERT_NONE
 from logging import Handler, CRITICAL, ERROR, WARNING, INFO, DEBUG, getLogger, shutdown
 from syslog import openlog, syslog, LOG_PID, LOG_CRIT, LOG_ERR, LOG_WARNING, LOG_INFO, LOG_DEBUG
 from socket import inet_aton, inet_pton, inet_ntop, AF_INET, AF_INET6, error as SocketError, getaddrinfo
@@ -145,6 +147,16 @@ class ELKProxyInternalError(Exception):
     def __init__(self, errno, *args):
         self.errno = (errno,) + args
         super(ELKProxyInternalError, self).__init__()
+
+
+class HTTPSServer(WSGIServer):
+    def __init__(self, *args, **kwargs):
+        self._sslargs = dict(((k, kwargs.pop(k, '') or None) for k in ('keyfile', 'certfile')))
+        WSGIServer.__init__(self, *args, **kwargs)
+
+    def get_request(self):
+        s, a = WSGIServer.get_request(self)
+        return wrap_socket(s, server_side=True, cert_reqs=CERT_NONE, **self._sslargs), a
 
 
 class ELKProxyDaemon(UnixDaemon):
