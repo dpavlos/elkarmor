@@ -27,7 +27,7 @@ from time import sleep
 from os import path
 from datetime import datetime
 from subprocess import Popen, PIPE
-from logging import Handler, CRITICAL, ERROR, WARNING, INFO, DEBUG
+from logging import Handler, CRITICAL, ERROR, WARNING, INFO, DEBUG, getLogger, shutdown
 from syslog import openlog, syslog, LOG_PID, LOG_CRIT, LOG_ERR, LOG_WARNING, LOG_INFO, LOG_DEBUG
 from socket import inet_aton, inet_pton, inet_ntop, AF_INET, AF_INET6, error as SocketError, getaddrinfo
 from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
@@ -364,11 +364,15 @@ class ELKProxyDaemon(UnixDaemon):
 
         log = cfg['config'].pop('log', {})
 
+        logLvl = {
+            'crit':     CRITICAL,
+            'err':      ERROR,
+            'warn':     WARNING,
+            'info':     INFO,
+            'debug':    DEBUG
+        }
         logging = {}
-        for (k, opts) in (
-            ('type', ('file', 'syslog')),
-            ('level', ('crit', 'err', 'warn', 'info', 'debug'))
-        ):
+        for (k, opts) in (('type', ('file', 'syslog')), ('level', tuple(logLvl))):
             v = log.pop(k, '').strip()
             if v not in opts:
                 raise ELKProxyInternalError(ECFGSEM, 'log-opt', k, v, opts)
@@ -380,13 +384,24 @@ class ELKProxyDaemon(UnixDaemon):
             if not fpath:
                 raise ELKProxyInternalError(ECFGSEM, 'log-path')
 
-            logging['file'] = fpath
+            try:
+                logHandler = FileHandler(fpath)
+            except IOError as e:
+                raise ELKProxyInternalError(ECFGSEM, 'log-io', fpath, e.errno)
         else:
-            logging['syslog'] = log.pop('prefix', '').strip() or None
+            logHandler = SysLogHandler(log.pop('prefix', '').strip() or 'elkproxyd')
 
-        del logging['type']
+        # Set up logging
 
-        self._logging = logging
+        log = getLogger()
+        log.addHandler(logHandler)
+        log.setLevel(logLvl[logging['level']])
+
+        self._log = log
+
+    def cleanup(self):
+        shutdown()
+        super(ELKProxyDaemon, self).cleanup()
 
     def run(self):
         restrictions = {'users': {}, 'group': {}}
