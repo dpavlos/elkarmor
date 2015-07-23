@@ -297,10 +297,16 @@ class ELKProxyDaemon(UnixDaemon):
 
         host = ldap.pop('host', '').strip() or 'localhost'
 
-        try:
-            getaddrinfo(host, None)
-        except SocketError:
-            raise ELKProxyInternalError(ECFGSEM, 'ldap-host', host)
+        for af in (AF_INET6, AF_INET):
+            ip = normalizeIP(af, host)
+            if ip is not None:
+                host = ip
+                break
+        else:
+            try:
+                getaddrinfo(host, None)
+            except SocketError:
+                raise ELKProxyInternalError(ECFGSEM, 'ldap-host', host)
 
         ### SSL
 
