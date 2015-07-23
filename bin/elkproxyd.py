@@ -25,6 +25,7 @@ from errno import *
 from itertools import ifilter, imap, islice, chain
 from time import sleep
 from os import path
+from datetime import datetime
 from subprocess import Popen, PIPE
 from logging import Handler, CRITICAL, ERROR, WARNING, INFO, DEBUG
 from syslog import openlog, syslog, LOG_PID, LOG_CRIT, LOG_ERR, LOG_WARNING, LOG_INFO, LOG_DEBUG
@@ -119,6 +120,25 @@ class SysLogHandler(Handler):
             syslog(msg)
         else:
             syslog(prio, msg)
+
+
+class FileHandler(Handler):
+    def __init__(self, name):
+        self._file = open(name, 'a', 1)
+        Handler.__init__(self)
+
+    def emit(self, record):
+        print >>self._file, '[{0}] [{1}] {2}'.format(
+            str(datetime.fromtimestamp(record.created)), record.levelname, self.format(record)
+        )
+
+    def flush(self):
+        self._file.flush()
+        Handler.flush(self)
+
+    def close(self):
+        self._file.close()
+        Handler.close(self)
 
 
 class ELKProxyInternalError(Exception):
