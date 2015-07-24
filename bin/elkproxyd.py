@@ -22,7 +22,7 @@ import sys
 import os
 import re
 from errno import *
-from itertools import ifilter, imap, islice, chain
+from itertools import ifilter, imap, islice, chain, permutations
 from time import sleep
 from os import path
 from datetime import datetime
@@ -211,6 +211,10 @@ class ELKProxyDaemon(UnixDaemon):
 
         self._elsrchURL = elsrchURL
 
+        ### SSL-specific options
+
+        self._sslargs = dict(((k, netio.pop(k, '') or None) for k in ('keyfile', 'certfile')))
+
 
         if not netio:
             raise ELKProxyInternalError(ECFGSEM, 'net-listen')
@@ -322,6 +326,9 @@ class ELKProxyDaemon(UnixDaemon):
         if not listen:
             raise ELKProxyInternalError(ECFGSEM, 'net-listen')
 
+        if any((SSL for af in listen.itervalues() for SSL in af.itervalues())) and not any(self._sslargs.itervalues()):
+            raise ELKProxyInternalError(ECFGSEM, 'net-ssl')
+
         self._listen = listen
 
         ## LDAP
@@ -427,6 +434,10 @@ class ELKProxyDaemon(UnixDaemon):
                                 restrictions[opt][val].append(idx)
                         else:
                             restrictions[opt][val] = [idx]
+
+        for (x, y) in permutations(self._sslargs):
+            if not self._sslargs[x]:
+                self._sslargs[x] = self._sslargs[y]
 
         while True:
             sleep(86400)
