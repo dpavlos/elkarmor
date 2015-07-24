@@ -149,13 +149,19 @@ class ELKProxyInternalError(Exception):
         super(ELKProxyInternalError, self).__init__()
 
 
-class HTTPSServer(WSGIServer):
+class HTTPServer(WSGIServer):
     def __init__(self, *args, **kwargs):
-        self._sslargs = dict(((k, kwargs.pop(k, '') or None) for k in ('keyfile', 'certfile')))
+        self.address_family = kwargs.pop('address_family', AF_INET)
         WSGIServer.__init__(self, *args, **kwargs)
 
+
+class HTTPSServer(HTTPServer):
+    def __init__(self, *args, **kwargs):
+        self._sslargs = dict(((k, kwargs.pop(k, '') or None) for k in ('keyfile', 'certfile')))
+        HTTPServer.__init__(self, *args, **kwargs)
+
     def get_request(self):
-        s, a = WSGIServer.get_request(self)
+        s, a = HTTPServer.get_request(self)
         return wrap_socket(s, server_side=True, cert_reqs=CERT_NONE, **self._sslargs), a
 
 
