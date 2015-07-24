@@ -29,7 +29,7 @@ from datetime import datetime
 from subprocess import Popen, PIPE
 from wsgiref.simple_server import WSGIServer
 from ssl import wrap_socket, CERT_NONE
-from logging import Handler, CRITICAL, ERROR, WARNING, INFO, DEBUG, getLogger, shutdown
+from logging import Handler, CRITICAL, ERROR, WARNING, INFO, DEBUG, getLogger, shutdown, StreamHandler
 from syslog import openlog, syslog, LOG_PID, LOG_CRIT, LOG_ERR, LOG_WARNING, LOG_INFO, LOG_DEBUG
 from socket import inet_aton, inet_pton, inet_ntop, AF_INET, AF_INET6, error as SocketError, getaddrinfo
 from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
@@ -422,6 +422,10 @@ class ELKProxyDaemon(UnixDaemon):
         log.addHandler(logHandler)
         log.setLevel(logLvl[logging['level']])
 
+        daemonLogger = getLogger('daemon')
+        for handler in daemonLogger.handlers:
+            daemonLogger.removeHandler(handler)
+
         self._log = log
 
     def cleanup(self):
@@ -459,6 +463,7 @@ def main():
             )
             break
     opts, args = parser.parse_args()
+    getLogger('daemon').addHandler(StreamHandler())
     try:
         return getattr(ELKProxyDaemon(**dict(ifilter((lambda x: x[1] is not None), vars(opts).iteritems()))), args[0])()
     except ELKProxyInternalError as e:
