@@ -27,7 +27,8 @@ from time import sleep
 from os import path
 from datetime import datetime
 from subprocess import Popen, PIPE
-from wsgiref.simple_server import WSGIServer
+from threading import Thread
+from wsgiref.simple_server import WSGIServer, make_server
 from ssl import wrap_socket, CERT_NONE
 from logging import Handler, CRITICAL, ERROR, WARNING, INFO, DEBUG, getLogger, shutdown, StreamHandler
 from syslog import openlog, syslog, LOG_PID, LOG_CRIT, LOG_ERR, LOG_WARNING, LOG_INFO, LOG_DEBUG
@@ -165,12 +166,19 @@ class HTTPSServer(HTTPServer):
         return wrap_socket(s, server_side=True, cert_reqs=CERT_NONE, **self._sslargs), a
 
 
+def ELKProxyApp(environ, start_response):
+    start_response('200 OK', [('Content-Type', 'text/plain')])
+    return repr(environ),
+
+
 class ELKProxyDaemon(UnixDaemon):
     name = 'ELK Proxy'
 
     def __init__(self, *args, **kwargs):
         self._cfgdir = kwargs.pop('cfgdir')
         self._cfg = {}
+        self._servers = []
+        self._threads = []
         super(ELKProxyDaemon, self).__init__(*args, **kwargs)
 
     def before_daemonize(self):
@@ -429,10 +437,26 @@ class ELKProxyDaemon(UnixDaemon):
         self._log = log
 
     def cleanup(self):
+        for s in self._servers:
+            s.shutdown()
+        for t in self._threads:
+            t.join()
         shutdown()
         super(ELKProxyDaemon, self).cleanup()
 
     def run(self):
+        def ServerWrapper(address_family, SSL):
+            def ServerWrapper_(*args, **kwargs):
+                return (HTTPSServer if SSL else HTTPServer)(*args, **dict(chain(
+                    kwargs.iteritems(), self._sslargs.iteritems() if SSL else (), (('address_family', address_family),)
+                )))
+            return ServerWrapper_
+
+        def serve(address_family, host, port, SSL):
+            s = make_server(host, port, ELKProxyApp, server_class=ServerWrapper(address_family, SSL))
+            self._servers.append(s)
+            s.serve_forever()
+
         restrictions = {'users': {}, 'group': {}}
         for (name, restriction) in self._restrictions.iteritems():
             idx = restriction.pop('index', '').strip()
@@ -448,6 +472,13 @@ class ELKProxyDaemon(UnixDaemon):
         for (x, y) in permutations(self._sslargs):
             if not self._sslargs[x]:
                 self._sslargs[x] = self._sslargs[y]
+
+        for (af, listen) in self._listen.iteritems():
+            for ((host, port), SSL) in listen.iteritems():
+                t = Thread(target=serve, args=(AF_INET if af == 4 else AF_INET6, host, port, SSL))
+                t.daemon = True
+                t.start()
+                self._threads.append(t)
 
         while True:
             sleep(86400)
