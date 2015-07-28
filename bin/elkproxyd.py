@@ -21,17 +21,16 @@
 import sys
 import os
 import re
+import itertools
+import logging
+import syslog
 from errno import *
-from itertools import ifilter, imap, islice, chain, permutations
 from time import sleep
-from os import path
 from datetime import datetime
 from subprocess import Popen, PIPE
 from threading import Thread
 from wsgiref.simple_server import WSGIServer, make_server
 from ssl import wrap_socket, CERT_NONE
-from logging import Handler, CRITICAL, ERROR, WARNING, INFO, DEBUG, getLogger, shutdown, StreamHandler
-from syslog import openlog, syslog, LOG_PID, LOG_CRIT, LOG_ERR, LOG_WARNING, LOG_INFO, LOG_DEBUG
 from socket import inet_aton, inet_pton, inet_ntop, AF_INET, AF_INET6, error as SocketError, getaddrinfo
 from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
 from daemon import UnixDaemon, get_daemon_option_parser
@@ -45,11 +44,11 @@ ECFGSYN = 3
 ECFGSEM = 4
 
 syslogLvl = {
-    CRITICAL:   LOG_CRIT,
-    ERROR:      LOG_ERR,
-    WARNING:    LOG_WARNING,
-    INFO:       LOG_INFO,
-    DEBUG:      LOG_DEBUG
+    logging.CRITICAL:   syslog.LOG_CRIT,
+    logging.ERROR:      syslog.LOG_ERR,
+    logging.WARNING:    syslog.LOG_WARNING,
+    logging.INFO:       syslog.LOG_INFO,
+    logging.DEBUG:      syslog.LOG_DEBUG
 }
 
 
@@ -110,25 +109,25 @@ def normalizeIP(af, ip):
         raise ValueError('{0} is not a valid IPv{1} address'.format(repr(ip), 4 if af == AF_INET else 6))
 
 
-class SysLogHandler(Handler):
+class SysLogHandler(logging.Handler):
     def __init__(self, ident):
-        openlog(ident, LOG_PID)
-        Handler.__init__(self)
+        syslog.openlog(ident, syslog.LOG_PID)
+        logging.Handler.__init__(self)
 
     def emit(self, record):
         msg = self.format(record)
         try:
             prio = syslogLvl[record.levelno]
         except KeyError:
-            syslog(msg)
+            syslog.syslog(msg)
         else:
-            syslog(prio, msg)
+            syslog.syslog(prio, msg)
 
 
-class FileHandler(Handler):
+class FileHandler(logging.Handler):
     def __init__(self, name):
         self._file = open(name, 'a', 1)
-        Handler.__init__(self)
+        logging.Handler.__init__(self)
 
     def emit(self, record):
         print >>self._file, '[{0}] [{1}] {2}'.format(
@@ -137,11 +136,11 @@ class FileHandler(Handler):
 
     def flush(self):
         self._file.flush()
-        Handler.flush(self)
+        logging.Handler.flush(self)
 
     def close(self):
         self._file.close()
-        Handler.close(self)
+        logging.Handler.close(self)
 
 
 class ELKProxyInternalError(Exception):
@@ -191,7 +190,7 @@ class ELKProxyDaemon(UnixDaemon):
 
         cfg = {}
         for cfn in ('config', 'restrictions'):
-            cfp = path.join(self._cfgdir, '{0}.ini'.format(cfn))
+            cfp = os.path.join(self._cfgdir, '{0}.ini'.format(cfn))
             try:
                 cf = open(cfp, 'r')
             except IOError as e:
@@ -247,9 +246,12 @@ class ELKProxyDaemon(UnixDaemon):
 
         resolve = {}
         try:
-            for (iface, af, ipaddr) in imap(
-                (lambda line: tuple(imap((lambda x: x.group(0)), islice(rWord.finditer(line), 1, 4)))),
-                ifilter(None, imap(str.strip, p.stdout))
+            for (iface, af, ipaddr) in itertools.imap(
+                (lambda line: tuple(itertools.imap(
+                    (lambda x: x.group(0)),
+                    itertools.islice(rWord.finditer(line), 1, 4)
+                ))),
+                itertools.ifilter(None, itertools.imap(str.strip, p.stdout))
             ):
                 try:
                     af = families[af]
@@ -279,10 +281,9 @@ class ELKProxyDaemon(UnixDaemon):
             raise ELKProxyInternalError(ECFGSEM, 'net-dev')
 
         with netDev as netDev:
-            for iface in imap(
-                (lambda x: x.group(1)),
-                ifilter(None, imap(rNetDev.match, ifilter(None, imap(str.strip, netDev))))
-            ):
+            for iface in itertools.imap((lambda x: x.group(1)), itertools.ifilter(None, itertools.imap(
+                rNetDev.match, itertools.ifilter(None, itertools.imap(str.strip, netDev))
+            ))):
                 if iface not in resolve:
                     resolve[iface] = {}
 
@@ -295,7 +296,7 @@ class ELKProxyDaemon(UnixDaemon):
         for (afn, afs, af) in ((4, '', AF_INET), (6, '6', AF_INET6)):
             listen[afn] = {}
             for SSL in ('', '-ssl'):
-                for addr in ifilter(None, imap(str.strip, parseSplit(
+                for addr in itertools.ifilter(None, itertools.imap(str.strip, parseSplit(
                     netio.pop('inet{0}{1}'.format(afs, SSL), ''), ','
                 ))):
                     m = rAddr.match(addr)
@@ -388,7 +389,7 @@ class ELKProxyDaemon(UnixDaemon):
 
         ### Username, password and root DN
 
-        self._ldap = dict(chain(
+        self._ldap = dict(itertools.chain(
             (('host', host), ('port', port), ('ssl', SSL)),
             ((k, (str if k == 'pass' else str.strip)(ldap.pop(k, ''))) for k in ('user', 'pass', 'rootdn'))
         ))
@@ -398,21 +399,21 @@ class ELKProxyDaemon(UnixDaemon):
         log = cfg['config'].pop('log', {})
 
         logLvl = {
-            'crit':     CRITICAL,
-            'err':      ERROR,
-            'warn':     WARNING,
-            'info':     INFO,
-            'debug':    DEBUG
+            'crit':     logging.CRITICAL,
+            'err':      logging.ERROR,
+            'warn':     logging.WARNING,
+            'info':     logging.INFO,
+            'debug':    logging.DEBUG
         }
-        logging = {}
+        logging_cfg = {}
         for (k, opts) in (('type', ('file', 'syslog')), ('level', tuple(logLvl))):
             v = log.pop(k, '').strip()
             if v not in opts:
                 raise ELKProxyInternalError(ECFGSEM, 'log-opt', k, v, opts)
 
-            logging[k] = v
+            logging_cfg[k] = v
 
-        if logging['type'] == 'file':
+        if logging_cfg['type'] == 'file':
             fpath = log.pop('path', '')
             if not fpath:
                 raise ELKProxyInternalError(ECFGSEM, 'log-path')
@@ -426,11 +427,11 @@ class ELKProxyDaemon(UnixDaemon):
 
         # Set up logging
 
-        log = getLogger()
+        log = logging.getLogger()
         log.addHandler(logHandler)
-        log.setLevel(logLvl[logging['level']])
+        log.setLevel(logLvl[logging_cfg['level']])
 
-        daemonLogger = getLogger('daemon')
+        daemonLogger = logging.getLogger('daemon')
         for handler in daemonLogger.handlers:
             daemonLogger.removeHandler(handler)
 
@@ -441,13 +442,13 @@ class ELKProxyDaemon(UnixDaemon):
             s.shutdown()
         for t in self._threads:
             t.join()
-        shutdown()
+        logging.shutdown()
         super(ELKProxyDaemon, self).cleanup()
 
     def run(self):
         def ServerWrapper(address_family, SSL):
             def ServerWrapper_(*args, **kwargs):
-                return (HTTPSServer if SSL else HTTPServer)(*args, **dict(chain(
+                return (HTTPSServer if SSL else HTTPServer)(*args, **dict(itertools.chain(
                     kwargs.iteritems(), self._sslargs.iteritems() if SSL else (), (('address_family', address_family),)
                 )))
             return ServerWrapper_
@@ -462,14 +463,16 @@ class ELKProxyDaemon(UnixDaemon):
             idx = restriction.pop('index', '').strip()
             if idx:
                 for (opt, sep) in (('users', ','), ('group', '|')):
-                    for val in ifilter(None, imap(str.strip, parseSplit(restriction.pop(opt, ''), sep))):
+                    for val in itertools.ifilter(None, itertools.imap(
+                        str.strip, parseSplit(restriction.pop(opt, ''), sep)
+                    )):
                         if val in restrictions[opt]:
                             if idx not in restrictions[opt][val]:
                                 restrictions[opt][val].append(idx)
                         else:
                             restrictions[opt][val] = [idx]
 
-        for (x, y) in permutations(self._sslargs):
+        for (x, y) in itertools.permutations(self._sslargs):
             if not self._sslargs[x]:
                 self._sslargs[x] = self._sslargs[y]
 
@@ -494,9 +497,12 @@ def main():
             )
             break
     opts, args = parser.parse_args()
-    getLogger('daemon').addHandler(StreamHandler())
+    logging.getLogger('daemon').addHandler(logging.StreamHandler())
     try:
-        return getattr(ELKProxyDaemon(**dict(ifilter((lambda x: x[1] is not None), vars(opts).iteritems()))), args[0])()
+        return getattr(
+            ELKProxyDaemon(**dict(itertools.ifilter((lambda x: x[1] is not None), vars(opts).iteritems()))),
+            args[0]
+        )()
     except ELKProxyInternalError as e:
         errno = e.errno[0]
 
