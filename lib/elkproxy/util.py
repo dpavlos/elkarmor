@@ -16,10 +16,11 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 
+import itertools
 from socket import inet_aton, inet_pton, inet_ntop, AF_INET, error as SocketError
 
 
-__all__ = ['parse_split', 'normalize_ip']
+__all__ = ['parse_split', 'normalize_ip', 'istrip']
 
 
 def parse_split(subj, sep, esc='\\'):
@@ -77,3 +78,13 @@ def normalize_ip(af, ip):
         return inet_ntop(af, inet_aton(ip) if af == AF_INET else inet_pton(af, ip))
     except (SocketError, ValueError):
         raise ValueError('{0} is not a valid IPv{1} address'.format(repr(ip), 4 if af == AF_INET else 6))
+
+
+def istrip(iterable):
+    """
+    Call .strip of each object yielded by iterable
+
+    :rtype: itertools.imap
+    """
+
+    return itertools.imap((lambda x: x.strip()), iterable)

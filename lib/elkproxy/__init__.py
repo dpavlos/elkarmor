@@ -136,7 +136,7 @@ class ELKProxyDaemon(UnixDaemon):
                     (lambda x: x.group(0)),
                     itertools.islice(rWord.finditer(line), 1, 4)
                 ))),
-                itertools.ifilter(None, itertools.imap(str.strip, p.stdout))
+                itertools.ifilter(None, istrip(p.stdout))
             ):
                 try:
                     af = families[af]
@@ -167,7 +167,7 @@ class ELKProxyDaemon(UnixDaemon):
 
         with netDev as netDev:
             for iface in itertools.imap((lambda x: x.group(1)), itertools.ifilter(None, itertools.imap(
-                rNetDev.match, itertools.ifilter(None, itertools.imap(str.strip, netDev))
+                rNetDev.match, itertools.ifilter(None, istrip(netDev))
             ))):
                 if iface not in resolve:
                     resolve[iface] = {}
@@ -181,7 +181,7 @@ class ELKProxyDaemon(UnixDaemon):
         for (afn, afs, af) in ((4, '', AF_INET), (6, '6', AF_INET6)):
             listen[afn] = {}
             for SSL in ('', '-ssl'):
-                for addr in itertools.ifilter(None, itertools.imap(str.strip, parse_split(
+                for addr in itertools.ifilter(None, istrip(parse_split(
                     netio.pop('inet{0}{1}'.format(afs, SSL), ''), ','
                 ))):
                     m = rAddr.match(addr)
@@ -346,9 +346,7 @@ class ELKProxyDaemon(UnixDaemon):
             idx = restriction.pop('index', '').strip()
             if idx:
                 for (opt, sep) in (('users', ','), ('group', '|')):
-                    for val in itertools.ifilter(None, itertools.imap(
-                        str.strip, parse_split(restriction.pop(opt, ''), sep)
-                    )):
+                    for val in itertools.ifilter(None, istrip(parse_split(restriction.pop(opt, ''), sep))):
                         if val in restrictions[opt]:
                             if idx not in restrictions[opt][val]:
                                 restrictions[opt][val].append(idx)
