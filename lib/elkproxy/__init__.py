@@ -27,13 +27,13 @@ from errno import *
 from time import sleep
 from subprocess import Popen, PIPE
 from threading import Thread
-from wsgiref.simple_server import WSGIServer, make_server
-from ssl import wrap_socket, CERT_NONE
+from wsgiref.simple_server import make_server
 from socket import AF_INET, AF_INET6, error as SocketError, getaddrinfo
 from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
 from daemon import UnixDaemon, get_daemon_option_parser
 from .util import *
 from .logging_handlers import *
+from .http import *
 
 
 DEVNULL = open(os.devnull, 'r+b')
@@ -48,22 +48,6 @@ class ELKProxyInternalError(Exception):
     def __init__(self, errno, *args):
         self.errno = (errno,) + args
         super(ELKProxyInternalError, self).__init__()
-
-
-class HTTPServer(WSGIServer):
-    def __init__(self, *args, **kwargs):
-        self.address_family = kwargs.pop('address_family', AF_INET)
-        WSGIServer.__init__(self, *args, **kwargs)
-
-
-class HTTPSServer(HTTPServer):
-    def __init__(self, *args, **kwargs):
-        self._sslargs = dict(((k, kwargs.pop(k, '') or None) for k in ('keyfile', 'certfile')))
-        HTTPServer.__init__(self, *args, **kwargs)
-
-    def get_request(self):
-        s, a = HTTPServer.get_request(self)
-        return wrap_socket(s, server_side=True, cert_reqs=CERT_NONE, **self._sslargs), a
 
 
 def ELKProxyApp(environ, start_response):
