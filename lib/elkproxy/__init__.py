@@ -23,10 +23,8 @@ import os
 import re
 import itertools
 import logging
-import syslog
 from errno import *
 from time import sleep
-from datetime import datetime
 from subprocess import Popen, PIPE
 from threading import Thread
 from wsgiref.simple_server import WSGIServer, make_server
@@ -35,6 +33,7 @@ from socket import AF_INET, AF_INET6, error as SocketError, getaddrinfo
 from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
 from daemon import UnixDaemon, get_daemon_option_parser
 from .util import *
+from .logging_handlers import *
 
 
 DEVNULL = open(os.devnull, 'r+b')
@@ -43,48 +42,6 @@ ECFGDIR = 1
 ECFGIO = 2
 ECFGSYN = 3
 ECFGSEM = 4
-
-syslogLvl = {
-    logging.CRITICAL:   syslog.LOG_CRIT,
-    logging.ERROR:      syslog.LOG_ERR,
-    logging.WARNING:    syslog.LOG_WARNING,
-    logging.INFO:       syslog.LOG_INFO,
-    logging.DEBUG:      syslog.LOG_DEBUG
-}
-
-
-class SysLogHandler(logging.Handler):
-    def __init__(self, ident):
-        syslog.openlog(ident, syslog.LOG_PID)
-        logging.Handler.__init__(self)
-
-    def emit(self, record):
-        msg = self.format(record)
-        try:
-            prio = syslogLvl[record.levelno]
-        except KeyError:
-            syslog.syslog(msg)
-        else:
-            syslog.syslog(prio, msg)
-
-
-class FileHandler(logging.Handler):
-    def __init__(self, name):
-        self._file = open(name, 'a', 1)
-        logging.Handler.__init__(self)
-
-    def emit(self, record):
-        print >>self._file, '[{0}] [{1}] {2}'.format(
-            str(datetime.fromtimestamp(record.created)), record.levelname, self.format(record)
-        )
-
-    def flush(self):
-        self._file.flush()
-        logging.Handler.flush(self)
-
-    def close(self):
-        self._file.close()
-        logging.Handler.close(self)
 
 
 class ELKProxyInternalError(Exception):
