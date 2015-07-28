@@ -50,7 +50,7 @@ class ELKProxyInternalError(Exception):
         super(ELKProxyInternalError, self).__init__()
 
 
-def ELKProxyApp(environ, start_response):
+def app(environ, start_response):
     start_response('200 OK', [('Content-Type', 'text/plain')])
     return repr(environ),
 
@@ -331,13 +331,13 @@ class ELKProxyDaemon(UnixDaemon):
         super(ELKProxyDaemon, self).cleanup()
 
     def run(self):
-        def ServerWrapper(address_family, SSL):
+        def server_wrapper(address_family, SSL):
             return lambda *args, **kwargs: (HTTPSServer if SSL else HTTPServer)(*args, **dict(itertools.chain(
                 kwargs.iteritems(), self._sslargs.iteritems() if SSL else (), (('address_family', address_family),)
             )))
 
         def serve(address_family, host, port, SSL):
-            s = make_server(host, port, ELKProxyApp, server_class=ServerWrapper(address_family, SSL))
+            s = make_server(host, port, app, server_class=server_wrapper(address_family, SSL))
             self._servers.append(s)
             s.serve_forever()
 
