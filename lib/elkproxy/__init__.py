@@ -332,11 +332,9 @@ class ELKProxyDaemon(UnixDaemon):
 
     def run(self):
         def ServerWrapper(address_family, SSL):
-            def ServerWrapper_(*args, **kwargs):
-                return (HTTPSServer if SSL else HTTPServer)(*args, **dict(itertools.chain(
-                    kwargs.iteritems(), self._sslargs.iteritems() if SSL else (), (('address_family', address_family),)
-                )))
-            return ServerWrapper_
+            return lambda *args, **kwargs: (HTTPSServer if SSL else HTTPServer)(*args, **dict(itertools.chain(
+                kwargs.iteritems(), self._sslargs.iteritems() if SSL else (), (('address_family', address_family),)
+            )))
 
         def serve(address_family, host, port, SSL):
             s = make_server(host, port, ELKProxyApp, server_class=ServerWrapper(address_family, SSL))
