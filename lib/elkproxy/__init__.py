@@ -373,7 +373,7 @@ class ELKProxyDaemon(UnixDaemon):
 def main():
     parser = get_daemon_option_parser()
     for option_group in parser.option_groups:
-        if option_group.title == 'Start':
+        if option_group.title == 'Start and stop':
             option_group.add_option(
                 '-c', '--cfgdir',
                 dest='cfgdir', metavar='DIR', default='/etc/elkproxy', help='read configuration from directory DIR'
