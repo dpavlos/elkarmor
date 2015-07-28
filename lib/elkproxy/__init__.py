@@ -31,9 +31,10 @@ from subprocess import Popen, PIPE
 from threading import Thread
 from wsgiref.simple_server import WSGIServer, make_server
 from ssl import wrap_socket, CERT_NONE
-from socket import inet_aton, inet_pton, inet_ntop, AF_INET, AF_INET6, error as SocketError, getaddrinfo
+from socket import AF_INET, AF_INET6, error as SocketError, getaddrinfo
 from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
 from daemon import UnixDaemon, get_daemon_option_parser
+from .util import *
 
 
 DEVNULL = open(os.devnull, 'r+b')
@@ -50,63 +51,6 @@ syslogLvl = {
     logging.INFO:       syslog.LOG_INFO,
     logging.DEBUG:      syslog.LOG_DEBUG
 }
-
-
-def parseSplit(subj, sep, esc='\\'):
-    """
-    Parse subj as a list of strings separated by sep.
-        parseSplit('a,b', ',') -> 'a', 'b'
-    To get a literal sep inside a list's item, prepend an esc.
-        parseSplit('\\,', ',') -> ','
-    To get a literal esc, double it.
-        parseSplit('\\\\', ',') -> '\\'
-
-    :type subj: str
-    :type sep: str
-    :type esc: str
-    """
-
-    carry = False
-    cur = ''
-    c = None
-
-    for c in subj:
-        if carry:
-            cur += c if c in (esc, sep) else esc + c
-            carry = False
-        elif c == esc:
-            carry = True
-        elif c == sep:
-            yield cur
-            cur = ''
-        else:
-            cur += c
-
-    if c is not None:
-        if carry:
-            cur += esc
-        yield cur
-
-
-def normalizeIP(af, ip):
-    """
-    Normalize IP address.
-        127.1 -> 127.0.0.1
-        0000:0000:0000:0000:0000:0000:0000:0001 -> ::1
-
-    :param af: address family (AF_INET or AF_INET6)
-    :param ip: IP address
-    :type ip: str
-
-    :returns: normalized IP address
-    :rtype: str
-    :raises: ValueError
-    """
-
-    try:
-        return inet_ntop(af, inet_aton(ip) if af == AF_INET else inet_pton(af, ip))
-    except (SocketError, ValueError):
-        raise ValueError('{0} is not a valid IPv{1} address'.format(repr(ip), 4 if af == AF_INET else 6))
 
 
 class SysLogHandler(logging.Handler):
@@ -259,7 +203,7 @@ class ELKProxyDaemon(UnixDaemon):
                     continue
 
                 try:
-                    ip = normalizeIP(AF_INET if af == 4 else AF_INET6, ipaddr.rsplit('/', 1)[0])
+                    ip = normalize_ip(AF_INET if af == 4 else AF_INET6, ipaddr.rsplit('/', 1)[0])
                 except ValueError:
                     raise ELKProxyInternalError(ECFGSEM, 'net-proc-ip', af, iface, ipaddr)
 
@@ -296,7 +240,7 @@ class ELKProxyDaemon(UnixDaemon):
         for (afn, afs, af) in ((4, '', AF_INET), (6, '6', AF_INET6)):
             listen[afn] = {}
             for SSL in ('', '-ssl'):
-                for addr in itertools.ifilter(None, itertools.imap(str.strip, parseSplit(
+                for addr in itertools.ifilter(None, itertools.imap(str.strip, parse_split(
                     netio.pop('inet{0}{1}'.format(afs, SSL), ''), ','
                 ))):
                     m = rAddr.match(addr)
@@ -324,7 +268,7 @@ class ELKProxyDaemon(UnixDaemon):
                         ip = resolve[ip][afn]
                     elif allowIP:
                         try:
-                            ip = normalizeIP(af, ip)
+                            ip = normalize_ip(af, ip)
                         except ValueError:
                             raise ELKProxyInternalError(ECFGSEM, 'net-ip', afn, ip)
                     else:
@@ -356,7 +300,7 @@ class ELKProxyDaemon(UnixDaemon):
 
         for af in (AF_INET6, AF_INET):
             try:
-                host = normalizeIP(af, host)
+                host = normalize_ip(af, host)
             except ValueError:
                 continue
             break
@@ -464,7 +408,7 @@ class ELKProxyDaemon(UnixDaemon):
             if idx:
                 for (opt, sep) in (('users', ','), ('group', '|')):
                     for val in itertools.ifilter(None, itertools.imap(
-                        str.strip, parseSplit(restriction.pop(opt, ''), sep)
+                        str.strip, parse_split(restriction.pop(opt, ''), sep)
                     )):
                         if val in restrictions[opt]:
                             if idx not in restrictions[opt][val]:
