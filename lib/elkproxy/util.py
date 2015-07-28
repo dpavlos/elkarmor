@@ -20,7 +20,7 @@ import itertools
 from socket import inet_aton, inet_pton, inet_ntop, AF_INET, error as SocketError
 
 
-__all__ = ['parse_split', 'normalize_ip', 'istrip']
+__all__ = ['parse_split', 'normalize_ip', 'istrip', 'ifilter_bool']
 
 
 def parse_split(subj, sep, esc='\\'):
@@ -88,3 +88,13 @@ def istrip(iterable):
     """
 
     return itertools.imap((lambda x: x.strip()), iterable)
+
+
+def ifilter_bool(iterable):
+    """
+    Yield only true values from iterable
+
+    :rtype: itertools.ifilter
+    """
+
+    return itertools.ifilter(None, iterable)
