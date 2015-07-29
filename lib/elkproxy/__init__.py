@@ -120,7 +120,7 @@ class ELKProxyDaemon(UnixDaemon):
         ### Resolve all net interfaces' IP (v4 and v6) addresses
 
         rWord = re.compile(r'\S+')
-        families = {'inet': 4, 'inet6': 6}
+        families = {'inet': AF_INET, 'inet6': AF_INET6}
 
         p = Popen(
             ['ip', '-o', 'addr', 'show'],
@@ -144,7 +144,7 @@ class ELKProxyDaemon(UnixDaemon):
                     continue
 
                 try:
-                    ip = normalize_ip(AF_INET if af == 4 else AF_INET6, ipaddr.rsplit('/', 1)[0])
+                    ip = normalize_ip(af, ipaddr.rsplit('/', 1)[0])
                 except ValueError:
                     raise ELKProxyInternalError(ECFGSEM, 'net-proc-ip', af, iface, ipaddr)
 
@@ -178,8 +178,8 @@ class ELKProxyDaemon(UnixDaemon):
         rAddr6 = re.compile(r'\[(.+)\](?!.)')
 
         listen = {}
-        for (afn, afs, af) in ((4, '', AF_INET), (6, '6', AF_INET6)):
-            listen[afn] = {}
+        for (afs, af) in (('', AF_INET), ('6', AF_INET6)):
+            listen[af] = {}
             for SSL in ('', '-ssl'):
                 for addr in ifilter_bool(istrip(parse_split(netio.pop('inet{0}{1}'.format(afs, SSL), ''), ','))):
                     m = rAddr.match(addr)
@@ -192,7 +192,7 @@ class ELKProxyDaemon(UnixDaemon):
                         raise ELKProxyInternalError(ECFGSEM, 'net-port', port, addr)
 
                     allowIP = allowIFace = True
-                    if afn == 6:
+                    if af == AF_INET6:
                         m = rAddr6.match(ip)
                         if m:
                             ip = m.group(1)
@@ -201,25 +201,25 @@ class ELKProxyDaemon(UnixDaemon):
                             allowIP = False
 
                     if allowIFace and ip in resolve:
-                        if afn not in resolve[ip]:
+                        if af not in resolve[ip]:
                             raise ELKProxyInternalError(ECFGSEM, 'net-af', af, ip)
 
-                        ip = resolve[ip][afn]
+                        ip = resolve[ip][af]
                     elif allowIP:
                         try:
                             ip = normalize_ip(af, ip)
                         except ValueError:
-                            raise ELKProxyInternalError(ECFGSEM, 'net-ip', afn, ip)
+                            raise ELKProxyInternalError(ECFGSEM, 'net-ip', af, ip)
                     else:
                         raise ELKProxyInternalError(ECFGSEM, 'net-iface', ip)
 
                     nAddr = (ip, port)
-                    if nAddr in listen[afn]:
+                    if nAddr in listen[af]:
                         raise ELKProxyInternalError(ECFGSEM, 'net-alrdy', addr)
 
-                    listen[afn][nAddr] = bool(SSL)
-            if not listen[afn]:
-                del listen[afn]
+                    listen[af][nAddr] = bool(SSL)
+            if not listen[af]:
+                del listen[af]
 
         if not listen:
             raise ELKProxyInternalError(ECFGSEM, 'net-listen')
@@ -357,7 +357,7 @@ class ELKProxyDaemon(UnixDaemon):
 
         for (af, listen) in self._listen.iteritems():
             for ((host, port), SSL) in listen.iteritems():
-                t = Thread(target=serve, args=(AF_INET if af == 4 else AF_INET6, host, port, SSL))
+                t = Thread(target=serve, args=(af, host, port, SSL))
                 t.daemon = True
                 t.start()
                 self._threads.append(t)
