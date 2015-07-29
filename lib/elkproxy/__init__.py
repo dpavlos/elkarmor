@@ -42,6 +42,14 @@ ECFGIO = 2
 ECFGSYN = 3
 ECFGSEM = 4
 
+log_lvl = {
+    'crit':     logging.CRITICAL,
+    'err':      logging.ERROR,
+    'warn':     logging.WARNING,
+    'info':     logging.INFO,
+    'debug':    logging.DEBUG
+}
+
 
 class ELKProxyInternalError(Exception):
     def __init__(self, errno, *args):
@@ -96,27 +104,44 @@ class ELKProxyDaemon(UnixDaemon):
 
         # Validate configuration
 
-        ## Network I/O
+        self._cfg = dict(((k, getattr(self, '_validate_cfg_' + k)(cfg['config'])) for k in ('netio', 'ldap', 'log')))
 
-        netio = cfg['config'].pop('netio', {})
+        # Set up logging
 
-        ### Check for non-empty Elasticsearch URL
+        logging_cfg = self._cfg['log']
 
-        elsrchURL = netio.pop('elasticsearch', '').strip()
-        if not elsrchURL:
+        log = logging.getLogger()
+        log.setLevel(log_lvl[logging_cfg['level']])
+
+        try:
+            log.addHandler(FileHandler(logging_cfg['path']) if (
+                logging_cfg['type'] == 'file'
+            ) else SysLogHandler(logging_cfg['prefix']))
+        except IOError as e:
+            raise ELKProxyInternalError(ECFGSEM, 'log-io', logging_cfg['path'], e.errno)
+
+        daemon_logger = logging.getLogger('daemon')
+        for handler in daemon_logger.handlers:
+            daemon_logger.removeHandler(handler)
+
+    @staticmethod
+    def _validate_cfg_netio(cfg):
+        cfg = cfg.get('netio', {}).copy()
+
+        # Check for non-empty Elasticsearch URL and SSL-specific options
+
+        netio = {
+            'elsrch': cfg.pop('elasticsearch', '').strip(),
+            'sslargs': dict(((k, cfg.pop(k, '') or None) for k in ('keyfile', 'certfile')))
+        }
+
+        if not netio['elsrch']:
             raise ELKProxyInternalError(ECFGSEM, 'net-elsrch')
 
-        self._elsrchURL = elsrchURL
+        # Validate addresses and interfaces
 
-        ### SSL-specific options
-
-        self._sslargs = dict(((k, netio.pop(k, '') or None) for k in ('keyfile', 'certfile')))
-
-
-        if not netio:
+        if not cfg:
             raise ELKProxyInternalError(ECFGSEM, 'net-listen')
-
-        ### Validate addresses and interfaces
 
         rAddr = re.compile(r'(.+):(\d+)(?!.)')
         rAddr6 = re.compile(r'\[(.+)\](?!.)')
@@ -126,7 +151,7 @@ class ELKProxyDaemon(UnixDaemon):
         for (afs, af) in (('', AF_INET), ('6', AF_INET6)):
             listen[af] = {}
             for SSL in ('', '-ssl'):
-                for addr in ifilter_bool(istrip(parse_split(netio.pop('inet{0}{1}'.format(afs, SSL), ''), ','))):
+                for addr in ifilter_bool(istrip(parse_split(cfg.pop('inet{0}{1}'.format(afs, SSL), ''), ','))):
                     m = rAddr.match(addr)
                     if not m:
                         raise ELKProxyInternalError(ECFGSEM, 'net-fmt', addr)
@@ -169,18 +194,23 @@ class ELKProxyDaemon(UnixDaemon):
         if not listen:
             raise ELKProxyInternalError(ECFGSEM, 'net-listen')
 
-        if any((SSL for af in listen.itervalues() for SSL in af.itervalues())) and not any(self._sslargs.itervalues()):
+        if any((
+            SSL for af in listen.itervalues() for SSL in af.itervalues()
+        )) and not any(netio['sslargs'].itervalues()):
             raise ELKProxyInternalError(ECFGSEM, 'net-ssl')
 
-        self._listen = listen
+        netio['listen'] = listen
 
-        ## LDAP
 
-        ldap = cfg['config'].pop('ldap', {})
+        return netio
 
-        ### Host
+    @staticmethod
+    def _validate_cfg_ldap(cfg):
+        cfg = cfg.get('ldap', {}).copy()
 
-        host = ldap.pop('host', '').strip() or 'localhost'
+        # Host
+
+        host = cfg.pop('host', '').strip() or 'localhost'
 
         for af in (AF_INET6, AF_INET):
             try:
@@ -194,18 +224,18 @@ class ELKProxyDaemon(UnixDaemon):
             except SocketError:
                 raise ELKProxyInternalError(ECFGSEM, 'ldap-host', host)
 
-        ### SSL
+        # SSL
 
-        SSL = ldap.pop('ssl', '').strip() or 'off'
+        SSL = cfg.pop('ssl', '').strip() or 'off'
 
         try:
             SSL = {'off': False, 'on': True, 'starttls': 'starttls'}[SSL]
         except KeyError:
             raise ELKProxyInternalError(ECFGSEM, 'ldap-ssl', SSL)
 
-        ### Port
+        # Port
 
-        port = ldap.pop('port', '').strip() or (636 if SSL is True else 389)
+        port = cfg.pop('port', '').strip() or (636 if SSL is True else 389)
 
         try:
             port = int(port)
@@ -215,55 +245,31 @@ class ELKProxyDaemon(UnixDaemon):
         if port > 65535:
             raise ELKProxyInternalError(ECFGSEM, 'ldap-port', port)
 
-        ### Username, password and root DN
+        # Username, password and root DN
 
-        self._ldap = dict(itertools.chain(
+        return dict(itertools.chain(
             (('host', host), ('port', port), ('ssl', SSL)),
-            ((k, (str if k == 'pass' else str.strip)(ldap.pop(k, ''))) for k in ('user', 'pass', 'rootdn'))
+            ((k, (str if k == 'pass' else str.strip)(cfg.pop(k, ''))) for k in ('user', 'pass', 'rootdn'))
         ))
 
-        ## Logging
+    @staticmethod
+    def _validate_cfg_log(cfg):
+        cfg = cfg.get('log', {}).copy()
 
-        log = cfg['config'].pop('log', {})
-
-        logLvl = {
-            'crit':     logging.CRITICAL,
-            'err':      logging.ERROR,
-            'warn':     logging.WARNING,
-            'info':     logging.INFO,
-            'debug':    logging.DEBUG
-        }
         logging_cfg = {}
-        for (k, opts) in (('type', ('file', 'syslog')), ('level', tuple(logLvl))):
-            v = log.pop(k, '').strip()
+        for (k, opts) in (('type', ('file', 'syslog')), ('level', tuple(log_lvl))):
+            logging_cfg[k] = v = cfg.pop(k, '').strip()
             if v not in opts:
                 raise ELKProxyInternalError(ECFGSEM, 'log-opt', k, v, opts)
 
-            logging_cfg[k] = v
-
         if logging_cfg['type'] == 'file':
-            fpath = log.pop('path', '')
+            logging_cfg['path'] = fpath = cfg.pop('path', '')
             if not fpath:
                 raise ELKProxyInternalError(ECFGSEM, 'log-path')
-
-            try:
-                logHandler = FileHandler(fpath)
-            except IOError as e:
-                raise ELKProxyInternalError(ECFGSEM, 'log-io', fpath, e.errno)
         else:
-            logHandler = SysLogHandler(log.pop('prefix', '').strip() or 'elkproxyd')
+            logging_cfg['prefix'] = cfg.pop('prefix', '').strip() or 'elkproxyd'
 
-        # Set up logging
-
-        log = logging.getLogger()
-        log.addHandler(logHandler)
-        log.setLevel(logLvl[logging_cfg['level']])
-
-        daemonLogger = logging.getLogger('daemon')
-        for handler in daemonLogger.handlers:
-            daemonLogger.removeHandler(handler)
-
-        self._log = log
+        return logging_cfg
 
     def cleanup(self):
         for s in self._servers:
@@ -274,9 +280,15 @@ class ELKProxyDaemon(UnixDaemon):
         super(ELKProxyDaemon, self).cleanup()
 
     def run(self):
+        sslargs = self._cfg['netio']['sslargs']
+
+        for (x, y) in itertools.permutations(sslargs):
+            if not sslargs[x]:
+                sslargs[x] = sslargs[y]
+
         def server_wrapper(address_family, SSL):
             return lambda *args, **kwargs: (HTTPSServer if SSL else HTTPServer)(*args, **dict(itertools.chain(
-                kwargs.iteritems(), self._sslargs.iteritems() if SSL else (), (('address_family', address_family),)
+                kwargs.iteritems(), sslargs.iteritems() if SSL else (), (('address_family', address_family),)
             )))
 
         def serve(address_family, host, port, SSL):
@@ -296,11 +308,7 @@ class ELKProxyDaemon(UnixDaemon):
                         else:
                             restrictions[opt][val] = [idx]
 
-        for (x, y) in itertools.permutations(self._sslargs):
-            if not self._sslargs[x]:
-                self._sslargs[x] = self._sslargs[y]
-
-        for (af, listen) in self._listen.iteritems():
+        for (af, listen) in self._cfg['netio']['listen'].iteritems():
             for ((host, port), SSL) in listen.iteritems():
                 t = Thread(target=serve, args=(af, host, port, SSL))
                 t.daemon = True
