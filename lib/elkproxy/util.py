@@ -21,7 +21,7 @@ import netifaces
 from socket import inet_aton, inet_pton, inet_ntop, AF_INET, AF_INET6, error as SocketError
 
 
-__all__ = ['parse_split', 'normalize_ip', 'istrip', 'ifilter_bool', 'getifaddrs']
+__all__ = ['parse_split', 'normalize_ip', 'istrip', 'ifilter_bool', 'getifaddrs', 'AF_INET', 'AF_INET6']
 
 
 def parse_split(subj, sep, esc='\\'):

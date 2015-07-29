@@ -28,7 +28,7 @@ from time import sleep
 from subprocess import Popen, PIPE
 from threading import Thread
 from wsgiref.simple_server import make_server
-from socket import AF_INET, AF_INET6, error as SocketError, getaddrinfo
+from socket import error as SocketError, getaddrinfo
 from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
 from daemon import UnixDaemon, get_daemon_option_parser
 from .util import *
