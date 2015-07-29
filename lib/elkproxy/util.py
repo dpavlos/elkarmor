@@ -17,10 +17,11 @@
 
 
 import itertools
-from socket import inet_aton, inet_pton, inet_ntop, AF_INET, error as SocketError
+import netifaces
+from socket import inet_aton, inet_pton, inet_ntop, AF_INET, AF_INET6, error as SocketError
 
 
-__all__ = ['parse_split', 'normalize_ip', 'istrip', 'ifilter_bool']
+__all__ = ['parse_split', 'normalize_ip', 'istrip', 'ifilter_bool', 'getifaddrs']
 
 
 def parse_split(subj, sep, esc='\\'):
@@ -98,3 +99,37 @@ def ifilter_bool(iterable):
     """
 
     return itertools.ifilter(None, iterable)
+
+
+netifaces_socket = {
+    netifaces.AF_INET:  AF_INET,
+    netifaces.AF_INET6: AF_INET6
+}
+
+
+def getifaddrs():
+    """
+    Resolve all net interfaces' IP (v4 and v6) addresses
+
+    :return: {iface: {afamily: addr}}
+    :rtype: dict
+    """
+
+    return dict((
+        (
+            iface,
+            dict((
+                (
+                    af,
+                    normalize_ip(af, addr[0].split('%', 1)[0])
+                ) for (af, addr) in (
+                    (
+                        netifaces_socket[af],
+                        tuple(itertools.islice((
+                            v for ainfo in ainfos for (k, v) in ainfo.iteritems() if k == 'addr'
+                        ), 0, 1))
+                    ) for (af, ainfos) in netifaces.ifaddresses(iface).iteritems() if af in netifaces_socket
+                ) if addr
+            ))
+        ) for iface in netifaces.interfaces()
+    ))
