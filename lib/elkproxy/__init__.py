@@ -25,7 +25,6 @@ import itertools
 import logging
 from errno import *
 from time import sleep
-from subprocess import Popen, PIPE
 from threading import Thread
 from wsgiref.simple_server import make_server
 from socket import error as SocketError, getaddrinfo
@@ -117,65 +116,11 @@ class ELKProxyDaemon(UnixDaemon):
         if not netio:
             raise ELKProxyInternalError(ECFGSEM, 'net-listen')
 
-        ### Resolve all net interfaces' IP (v4 and v6) addresses
-
-        rWord = re.compile(r'\S+')
-        families = {'inet': AF_INET, 'inet6': AF_INET6}
-
-        p = Popen(
-            ['ip', '-o', 'addr', 'show'],
-            stdin=DEVNULL,
-            stdout=PIPE,
-            universal_newlines=True
-        )
-
-        resolve = {}
-        try:
-            for (iface, af, ipaddr) in itertools.imap(
-                (lambda line: tuple(itertools.imap(
-                    (lambda x: x.group(0)),
-                    itertools.islice(rWord.finditer(line), 1, 4)
-                ))),
-                ifilter_bool(istrip(p.stdout))
-            ):
-                try:
-                    af = families[af]
-                except KeyError:
-                    continue
-
-                try:
-                    ip = normalize_ip(af, ipaddr.rsplit('/', 1)[0])
-                except ValueError:
-                    raise ELKProxyInternalError(ECFGSEM, 'net-proc-ip', af, iface, ipaddr)
-
-                if iface in resolve:
-                    resolve[iface][af] = ip
-                else:
-                    resolve[iface] = {af: ip}
-        finally:
-            if p.wait():
-                raise ELKProxyInternalError(ECFGSEM, 'net-proc')
-
-        ### Collect all net interfaces w/o an IP address
-
-        rNetDev = re.compile(r'(\S+):')
-
-        try:
-            netDev = open('/proc/net/dev')
-        except IOError:
-            raise ELKProxyInternalError(ECFGSEM, 'net-dev')
-
-        with netDev as netDev:
-            for iface in itertools.imap((lambda x: x.group(1)), ifilter_bool(itertools.imap(
-                rNetDev.match, ifilter_bool(istrip(netDev))
-            ))):
-                if iface not in resolve:
-                    resolve[iface] = {}
-
         ### Validate addresses and interfaces
 
         rAddr = re.compile(r'(.+):(\d+)(?!.)')
         rAddr6 = re.compile(r'\[(.+)\](?!.)')
+        resolve = getifaddrs()
 
         listen = {}
         for (afs, af) in (('', AF_INET), ('6', AF_INET6)):
