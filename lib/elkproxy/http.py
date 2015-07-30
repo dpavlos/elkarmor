@@ -26,8 +26,14 @@ __all__ = ['HTTPServer', 'HTTPSServer']
 
 class HTTPServer(WSGIServer):
     def __init__(self, *args, **kwargs):
-        self.address_family = kwargs.pop('address_family', AF_INET)
+        for (k, d) in (('address_family', AF_INET), ('wsgi_env', {})):
+            setattr(self, k, kwargs.pop(k, d))
         WSGIServer.__init__(self, *args, **kwargs)
+
+    def setup_environ(self):
+        WSGIServer.setup_environ(self)
+        for (k, v) in self.wsgi_env.iteritems():
+            self.base_environ[k] = v
 
 
 class HTTPSServer(HTTPServer):
