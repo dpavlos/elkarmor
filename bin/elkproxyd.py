@@ -30,10 +30,10 @@ from wsgiref.simple_server import make_server
 from socket import error as SocketError, getaddrinfo
 from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
 from daemon import UnixDaemon, get_daemon_option_parser
-from .util import *
-from .logging_handlers import *
-from .http import *
-from .app import *
+from elkproxy.util import *
+from elkproxy.logging_handlers import *
+from elkproxy.http import *
+from elkproxy.app import *
 
 
 DEVNULL = open(os.devnull, 'r+b')
