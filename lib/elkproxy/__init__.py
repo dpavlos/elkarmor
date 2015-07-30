@@ -58,8 +58,19 @@ class ELKProxyInternalError(Exception):
 
 
 def app(environ, start_response):
+    cLen = environ.get('CONTENT_LENGTH', '').strip() or 0
+    try:
+        cLen = int(cLen)
+        if cLen < 0:
+            raise ValueError()
+    except ValueError:
+        start_response('400 Bad Request', [('Content-Type', 'text/plain')])
+        return 'Invalid Content-Length: ' + repr(cLen),
+
+    body = environ['wsgi.input'].read(cLen) if cLen else ''
+
     start_response('200 OK', [('Content-Type', 'text/plain')])
-    return repr(environ),
+    return repr(body),
 
 
 class ELKProxyDaemon(UnixDaemon):
