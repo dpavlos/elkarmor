@@ -27,6 +27,7 @@ from errno import *
 from time import sleep
 from threading import Thread
 from wsgiref.simple_server import make_server
+from httplib import HTTPConnection, HTTPSConnection
 from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
 from daemon import UnixDaemon, get_daemon_option_parser
 from elkproxy.util import *
@@ -298,6 +299,24 @@ class ELKProxyDaemon(UnixDaemon):
         super(ELKProxyDaemon, self).cleanup()
 
     def run(self):
+        class HTTPConnector(object):
+            def __init__(self, host, port, afamily, protocol, baseurl):
+                self.connector_class = HTTPSConnection if protocol == 'https' else HTTPConnection
+                self.host = '[{0}]'.format(host) if afamily is not None and afamily == AF_INET6 else host
+                self.port = port
+
+                baseurl = list(baseurl)
+                for i in (-1, 0):
+                    while baseurl and baseurl[i] == '/':
+                        del baseurl[i]
+
+                self.baseurl = '/' + ''.join(baseurl) if baseurl else ''
+
+            def __call__(self):
+                return self.connector_class(self.host, self.port)
+
+        http_connector = HTTPConnector(**self._cfg['elasticsearch'])
+
         sslargs = self._cfg['netio']['sslargs']
 
         for (x, y) in itertools.permutations(sslargs):
@@ -306,7 +325,9 @@ class ELKProxyDaemon(UnixDaemon):
 
         def server_wrapper(address_family, SSL):
             return lambda *args, **kwargs: (HTTPSServer if SSL else HTTPServer)(*args, **dict(itertools.chain(
-                kwargs.iteritems(), sslargs.iteritems() if SSL else (), (('address_family', address_family),)
+                kwargs.iteritems(),
+                sslargs.iteritems() if SSL else (),
+                (('address_family', address_family), ('wsgi_env', {'elkproxy.connector': http_connector}))
             )))
 
         def serve(address_family, host, port, SSL):
