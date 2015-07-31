@@ -99,7 +99,9 @@ class ELKProxyDaemon(UnixDaemon):
 
         # Validate configuration
 
-        self._cfg = dict(((k, getattr(self, '_validate_cfg_' + k)(cfg['config'])) for k in ('netio', 'ldap', 'log')))
+        self._cfg = dict(((k, getattr(self, '_validate_cfg_' + k)(cfg['config'])) for k in (
+            'netio', 'elasticsearch', 'ldap', 'log'
+        )))
 
         # Set up logging
 
@@ -123,15 +125,9 @@ class ELKProxyDaemon(UnixDaemon):
     def _validate_cfg_netio(cfg):
         cfg = cfg.get('netio', {}).copy()
 
-        # Check for non-empty Elasticsearch URL and SSL-specific options
+        # SSL-specific options
 
-        netio = {
-            'elsrch': cfg.pop('elasticsearch', '').strip(),
-            'sslargs': dict(((k, cfg.pop(k, '') or None) for k in ('keyfile', 'certfile')))
-        }
-
-        if not netio['elsrch']:
-            raise ELKProxyInternalError(ECFGSEM, 'net-elsrch')
+        netio = {'sslargs': dict(((k, cfg.pop(k, '') or None) for k in ('keyfile', 'certfile')))}
 
         # Validate addresses and interfaces
 
@@ -237,6 +233,42 @@ class ELKProxyDaemon(UnixDaemon):
             (('host', host), ('port', port), ('ssl', SSL)),
             ((k, (str if k == 'pass' else str.strip)(cfg.pop(k, ''))) for k in ('user', 'pass', 'rootdn'))
         ))
+
+    @staticmethod
+    def _validate_cfg_elasticsearch(cfg):
+        cfg = cfg.get('elasticsearch', {}).copy()
+
+        # Host
+
+        host = cfg.pop('host', '').strip() or 'localhost'
+
+        try:
+            elsrch = dict(itertools.izip(('afamily', 'host'), validate_hostname(host)))
+        except SocketError:
+            raise ELKProxyInternalError(ECFGSEM, 'elsrch-host', host)
+
+        # Protocol
+
+        elsrch['protocol'] = protocol = cfg.pop('protocol', '').strip() or 'http'
+
+        if protocol not in ('http', 'https'):
+            raise ELKProxyInternalError(ECFGSEM, 'elsrch-proto', protocol)
+
+        # Port
+
+        port = cfg.pop('port', '').strip() or 9200
+
+        try:
+            elsrch['port'] = validate_portnum(port)
+        except ValueError:
+            raise ELKProxyInternalError(ECFGSEM, 'elsrch-port', port)
+
+        # Base URL
+
+        elsrch['baseurl'] = cfg.pop('baseurl', '').strip() or '/'
+
+
+        return elsrch
 
     @staticmethod
     def _validate_cfg_log(cfg):
