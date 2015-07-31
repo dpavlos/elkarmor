@@ -18,10 +18,13 @@
 
 import itertools
 import netifaces
-from socket import inet_aton, inet_pton, inet_ntop, AF_INET, AF_INET6, error as SocketError
+from socket import inet_aton, inet_pton, inet_ntop, AF_INET, AF_INET6, error as SocketError, getaddrinfo
 
 
-__all__ = ['parse_split', 'normalize_ip', 'istrip', 'ifilter_bool', 'getifaddrs', 'AF_INET', 'AF_INET6']
+__all__ = [
+    'parse_split', 'normalize_ip', 'istrip', 'ifilter_bool', 'getifaddrs', 'validate_hostname',
+    'AF_INET', 'AF_INET6', 'SocketError'
+]
 
 
 def parse_split(subj, sep, esc='\\'):
@@ -133,3 +136,27 @@ def getifaddrs():
             ))
         ) for iface in netifaces.interfaces()
     ))
+
+
+def validate_hostname(hostname):
+    """
+    Validate the given hostname
+
+    :param hostname: the hostname to validate
+    :type hostname: str
+
+    :return: (af, ip)
+        af: if hostname is a valid IP v4 or v6 address, AF_INET or AF_INET6, respectively (None otherwise)
+        ip: if hostname is a valid IP (v4 or v6) address,
+            the hostname normalized by normalize_ip() (the unmodified hostname otherwise)
+    :rtype: tuple
+    :raises: SocketError  if the hostname is not an IP address and can't be resolved by getaddrinfo()
+    """
+
+    for af in (AF_INET6, AF_INET):
+        try:
+            return af, normalize_ip(af, hostname)
+        except ValueError:
+            pass
+    getaddrinfo(hostname, None)
+    return None, hostname

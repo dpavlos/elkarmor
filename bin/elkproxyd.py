@@ -27,7 +27,6 @@ from errno import *
 from time import sleep
 from threading import Thread
 from wsgiref.simple_server import make_server
-from socket import error as SocketError, getaddrinfo
 from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
 from daemon import UnixDaemon, get_daemon_option_parser
 from elkproxy.util import *
@@ -208,17 +207,10 @@ class ELKProxyDaemon(UnixDaemon):
 
         host = cfg.pop('host', '').strip() or 'localhost'
 
-        for af in (AF_INET6, AF_INET):
-            try:
-                host = normalize_ip(af, host)
-            except ValueError:
-                continue
-            break
-        else:
-            try:
-                getaddrinfo(host, None)
-            except SocketError:
-                raise ELKProxyInternalError(ECFGSEM, 'ldap-host', host)
+        try:
+            host = validate_hostname(host)
+        except SocketError:
+            raise ELKProxyInternalError(ECFGSEM, 'ldap-host', host)
 
         # SSL
 
