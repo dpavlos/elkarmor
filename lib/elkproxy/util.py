@@ -22,7 +22,7 @@ from socket import inet_aton, inet_pton, inet_ntop, AF_INET, AF_INET6, error as 
 
 
 __all__ = [
-    'parse_split', 'normalize_ip', 'istrip', 'ifilter_bool', 'getifaddrs', 'validate_hostname',
+    'parse_split', 'normalize_ip', 'istrip', 'ifilter_bool', 'getifaddrs', 'validate_hostname', 'validate_portnum',
     'AF_INET', 'AF_INET6', 'SocketError'
 ]
 
@@ -160,3 +160,20 @@ def validate_hostname(hostname):
             pass
     getaddrinfo(hostname, None)
     return None, hostname
+
+
+def validate_portnum(portnum):
+    """
+    Validate the given (TCP) port number
+
+    :param portnum: the (TCP) port number to validate
+    :type portnum: str|int
+
+    :return: the given port number as integer
+    :raises: ValueError  in case of an invalid integer given or not 0-65535
+    """
+
+    portnum = int(portnum)
+    if portnum not in xrange(65536):
+        raise ValueError('invalid port number: {0} (must be >= 0 and <= 65535)'.format(portnum))
+    return portnum

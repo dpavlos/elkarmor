@@ -152,8 +152,9 @@ class ELKProxyDaemon(UnixDaemon):
                         raise ELKProxyInternalError(ECFGSEM, 'net-fmt', addr)
 
                     ip, port = m.groups()
-                    port = int(port)
-                    if port > 65535:
+                    try:
+                        port = validate_portnum(port)
+                    except ValueError:
                         raise ELKProxyInternalError(ECFGSEM, 'net-port', port, addr)
 
                     allowIP = allowIFace = True
@@ -226,11 +227,8 @@ class ELKProxyDaemon(UnixDaemon):
         port = cfg.pop('port', '').strip() or (636 if SSL is True else 389)
 
         try:
-            port = int(port)
+            port = validate_portnum(port)
         except ValueError:
-            raise ELKProxyInternalError(ECFGSEM, 'ldap-port', port)
-
-        if port > 65535:
             raise ELKProxyInternalError(ECFGSEM, 'ldap-port', port)
 
         # Username, password and root DN
