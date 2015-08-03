@@ -27,7 +27,6 @@ from errno import *
 from time import sleep
 from threading import Thread
 from wsgiref.simple_server import make_server
-from httplib import HTTPConnection, HTTPSConnection
 from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
 from daemon import UnixDaemon, get_daemon_option_parser
 from elkproxy.util import *
@@ -244,15 +243,17 @@ class ELKProxyDaemon(UnixDaemon):
         host = cfg.pop('host', '').strip() or 'localhost'
 
         try:
-            elsrch = dict(itertools.izip(('afamily', 'host'), validate_hostname(host)))
+            elsrch = {'host': validate_hostname(host)[1]}
         except SocketError:
             raise ELKProxyInternalError(ECFGSEM, 'elsrch-host', host)
 
         # Protocol
 
-        elsrch['protocol'] = protocol = cfg.pop('protocol', '').strip() or 'http'
+        protocol = cfg.pop('protocol', '').strip() or 'http'
 
-        if protocol not in ('http', 'https'):
+        try:
+            elsrch['https'] = {'http': False, 'https': True}[protocol]
+        except KeyError:
             raise ELKProxyInternalError(ECFGSEM, 'elsrch-proto', protocol)
 
         # Port
@@ -299,22 +300,6 @@ class ELKProxyDaemon(UnixDaemon):
         super(ELKProxyDaemon, self).cleanup()
 
     def run(self):
-        class HTTPConnector(object):
-            def __init__(self, host, port, afamily, protocol, baseurl):
-                self.connector_class = HTTPSConnection if protocol == 'https' else HTTPConnection
-                self.host = '[{0}]'.format(host) if afamily is not None and afamily == AF_INET6 else host
-                self.port = port
-
-                baseurl = list(baseurl)
-                for i in (-1, 0):
-                    while baseurl and baseurl[i] == '/':
-                        del baseurl[i]
-
-                self.baseurl = '/' + ''.join(baseurl) if baseurl else ''
-
-            def __call__(self):
-                return self.connector_class(self.host, self.port)
-
         http_connector = HTTPConnector(**self._cfg['elasticsearch'])
 
         sslargs = self._cfg['netio']['sslargs']

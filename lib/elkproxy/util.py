@@ -18,12 +18,13 @@
 
 import itertools
 import netifaces
+from httplib import HTTPConnection, HTTPSConnection
 from socket import inet_aton, inet_pton, inet_ntop, AF_INET, AF_INET6, error as SocketError, getaddrinfo
 
 
 __all__ = [
     'parse_split', 'normalize_ip', 'istrip', 'ifilter_bool', 'getifaddrs', 'validate_hostname', 'validate_portnum',
-    'AF_INET', 'AF_INET6', 'SocketError'
+    'HTTPConnector', 'AF_INET', 'AF_INET6', 'SocketError'
 ]
 
 
@@ -177,3 +178,62 @@ def validate_portnum(portnum):
     if portnum not in xrange(65536):
         raise ValueError('invalid port number: {0} (must be >= 0 and <= 65535)'.format(portnum))
     return portnum
+
+
+def make_httpconn_cls(basecls):
+    class HTTPConnCls(basecls):
+        def __init__(self, *args, **kwargs):
+            self.baseurl = kwargs.pop('baseurl', '')
+            basecls.__init__(self, *args, **kwargs)
+
+        def request(self, method, url, *args, **kwargs):
+            if url:
+                url = '/' + url.lstrip('/')
+            return basecls.request(self, method, (self.baseurl + url) or '/', *args, **kwargs)
+
+    return HTTPConnCls
+
+
+HTTPConn = make_httpconn_cls(HTTPConnection)
+HTTPSConn = make_httpconn_cls(HTTPSConnection)
+
+
+class HTTPConnector(object):
+    """
+    Store parameters for creating an HTTP(S) connection (more than once)
+    """
+
+    def __init__(self, host, port=None, https=False, baseurl=''):
+        """
+        Validate parameters and construct object
+
+        :param host: the host to connect to
+        :type host: str
+        :param port: the (TCP) destination port (default: one of 80 and 443)
+        :type port: int|str
+        :param https: whether to use SSL
+        :type https: bool
+        :param baseurl: the prefix to prepend to every URL on .request()
+        :type baseurl: str
+
+        :raises: SocketError  in case of an invalid hostname
+        :raises: ValueError  in case of an invalid port number
+        """
+
+        af, host = validate_hostname(host)
+        self.host = host.join('[]') if af is not None and af == AF_INET6 else host
+
+        self.port = (443 if https else 80) if port is None else validate_portnum(port)
+        self.connector_class = HTTPSConn if https else HTTPConn
+
+        baseurl = baseurl.strip('/')
+        self.baseurl = baseurl and '/' + baseurl
+
+    def __call__(self):
+        """
+        Create a new HTTP(S) connection based on the stored parameters
+
+        :rtype: HTTPConnection
+        """
+
+        return self.connector_class(self.host, self.port, baseurl=self.baseurl)
