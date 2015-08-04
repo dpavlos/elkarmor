@@ -30,6 +30,21 @@ def app(environ, start_response):
         return 'Invalid Content-Length: ' + repr(clen),
 
     body = environ['wsgi.input'].read(clen) if clen else ''
+    query_str = environ.get('QUERY_STRING', '')
+    conn = environ['elkproxy.connector']()
 
-    start_response('200 OK', [('Content-Type', 'text/plain')])
-    return repr(body),
+    conn.request(
+        environ['REQUEST_METHOD'],
+        environ.get('PATH_INFO', '') + (query_str and '?' + query_str),
+        body,
+        dict(((k[5:].lower().replace('_', '-'), v) for (k, v) in environ.iteritems() if k.startswith('HTTP_')))
+    )
+    response = conn.getresponse()
+
+    status = response.status
+    reason = response.reason
+    headers = response.getheaders()
+    content = response.read()
+
+    start_response('{0} {1}'.format(status, reason), headers)
+    return content,
