@@ -16,7 +16,14 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 
+import re
+from base64 import b64decode
+
+
 __all__ = ['app']
+
+
+http_basic_auth_header = re.compile(r'Basic\s+(\S*)(?!.)', re.I)
 
 
 def app(environ, start_response):
@@ -32,12 +39,34 @@ def app(environ, start_response):
     body = environ['wsgi.input'].read(clen) if clen else ''
     query_str = environ.get('QUERY_STRING', '')
     conn = environ['elkproxy.connector']()
+    req_headers = dict(((
+        k[5:].lower().replace('_', '-'), v
+    ) for (k, v) in environ.iteritems() if k.startswith('HTTP_')))
+
+    user = None
+    http_auth_header = req_headers.get('authorization')
+    if http_auth_header is not None:
+        m = http_basic_auth_header.match(http_auth_header)
+        if m is not None:
+            b64cred = m.group(1)
+            try:
+                cred = b64decode(b64cred)
+            except TypeError:
+                start_response('400 Bad Request', [('Content-Type', 'text/plain')])
+                return 'Invalid authentication credentials: {0}\nMust be Base64-encoded!'.format(repr(b64cred)),
+
+            if ':' not in cred:
+                start_response('400 Bad Request', [('Content-Type', 'text/plain')])
+                return 'Invalid authentication credentials: {0}\n'\
+                       'Must contain a colon (to separate username and password)!'.format(repr(cred)),
+
+            user = cred.split(':', 1)[0]
 
     conn.request(
         environ['REQUEST_METHOD'],
         environ.get('PATH_INFO', '') + (query_str and '?' + query_str),
         body,
-        dict(((k[5:].lower().replace('_', '-'), v) for (k, v) in environ.iteritems() if k.startswith('HTTP_')))
+        req_headers
     )
     response = conn.getresponse()
 
