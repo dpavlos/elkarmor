@@ -27,18 +27,9 @@ http_basic_auth_header = re.compile(r'Basic\s+(\S*)(?!.)', re.I)
 
 
 def app(environ, start_response):
-    clen = environ.get('CONTENT_LENGTH', '').strip() or 0
-    try:
-        clen = int(clen)
-        if clen < 0:
-            raise ValueError()
-    except ValueError:
-        start_response('400 Bad Request', [('Content-Type', 'text/plain')])
-        return 'Invalid Content-Length: ' + repr(clen),
-
-    body = environ['wsgi.input'].read(clen) if clen else ''
+    path_info = environ.get('PATH_INFO', '') or '/'
     query_str = environ.get('QUERY_STRING', '')
-    conn = environ['elkproxy.connector']()
+
     req_headers = dict(((
         k[5:].lower().replace('_', '-'), v
     ) for (k, v) in environ.iteritems() if k.startswith('HTTP_')))
@@ -62,9 +53,21 @@ def app(environ, start_response):
 
             user = cred.split(':', 1)[0]
 
+    clen = environ.get('CONTENT_LENGTH', '').strip() or 0
+    try:
+        clen = int(clen)
+        if clen < 0:
+            raise ValueError()
+    except ValueError:
+        start_response('400 Bad Request', [('Content-Type', 'text/plain')])
+        return 'Invalid Content-Length: ' + repr(clen),
+
+    body = environ['wsgi.input'].read(clen) if clen else ''
+    conn = environ['elkproxy.connector']()
+
     conn.request(
         environ['REQUEST_METHOD'],
-        environ.get('PATH_INFO', '') + (query_str and '?' + query_str),
+        path_info + (query_str and '?' + query_str),
         body,
         req_headers
     )
