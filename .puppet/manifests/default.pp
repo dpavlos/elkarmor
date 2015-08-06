@@ -55,6 +55,55 @@ yumrepo { 'elasticsearch-1.6':
 }
 
 
+# ELK Proxy
+
+file { 'elkproxyd-pid':
+  path => '/var/run/elkproxyd.pid',
+  ensure => file,
+}
+
+file { '/etc/elkproxyd':
+  ensure => directory,
+}
+-> file { 'elkproxyd-cfg':
+  path => '/etc/elkproxyd/config.ini',
+  ensure => file,
+  source => '/vagrant/.puppet/files/elkproxyd.ini',
+}
+
+file { 'python-daemon':
+  path => '/usr/lib/python2.6/site-packages/daemon.py',
+  ensure => link,
+  target => '/vagrant/lib/daemon.py',
+}
+
+exec { 'epel':
+  unless => '/bin/rpm --quiet -q epel-release',
+  command => '/usr/bin/yum -y install "https://dl.fedoraproject.org/pub/epel/epel-release-latest-6.noarch.rpm"',
+  timeout => 0,
+}
+-> package { 'python-netifaces': }
+-> file { '/usr/lib/python2.6/site-packages/elkproxy':
+  ensure => link,
+  target => '/vagrant/lib/elkproxy',
+}
+-> file { '/usr/local/bin/elkproxyd':
+  ensure => link,
+  target => '/vagrant/bin/elkproxyd.py',
+  require => File['python-daemon'],
+}
+-> file { '/etc/rc.d/init.d/elkproxy':
+  ensure => file,
+  source => '/vagrant/.puppet/files/init.d-elkproxy',
+  mode => '0744',
+  require => File[['elkproxyd-pid', 'elkproxyd-cfg']],
+}
+-> service { 'elkproxy':
+  ensure => running,
+  enable => true,
+}
+
+
 # Kibana
 
 file { 'kibana-dir':
@@ -67,6 +116,12 @@ file { 'kibana-dir':
   command => '/usr/bin/wget -nv -O - "https://download.elastic.co/kibana/kibana/kibana-4.1.1-linux-x64.tar.gz" | /bin/tar -zx --strip-components=1',
   timeout => 0,
 }
+-> exec { 'kibana-chcfg':
+  cwd => '/opt/kibana',
+  provider => shell,
+  command => '/usr/bin/perl -pi -e \'s/(?<=\bhttp:\/\/localhost:)9200\b/59200/g;\' config/kibana.yml',
+  timeout => 0,
+}
 
 file { 'init.d-kibana':
   path => '/etc/rc.d/init.d/kibana',
@@ -77,7 +132,7 @@ file { 'init.d-kibana':
 -> service { 'kibana':
   ensure => running,
   enable => true,
-  require => Exec['fetch-kibana'],
+  require => [ Exec['kibana-chcfg'], Service['elkproxy'] ],
 }
 
 

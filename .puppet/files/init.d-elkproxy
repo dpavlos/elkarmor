@@ -1,0 +1,10 @@
+#!/bin/bash
+# chkconfig:   2345 80 20
+set -e
+
+if test start = "$1"
+    then o=' -b'
+    else o=''
+    fi
+
+/usr/local/bin/elkproxyd -p /var/run/elkproxyd.pid -c /etc/elkproxyd$o "$1"
