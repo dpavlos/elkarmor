@@ -28,6 +28,10 @@ http_basic_auth_header = re.compile(r'Basic\s+(\S*)(?!.)', re.I)
 
 def app(environ, start_response):
     path_info = environ.get('PATH_INFO', '') or '/'
+    if not path_info.startswith('/'):
+        start_response('403 Forbidden', [('Content-Type', 'text/plain')])
+        return "Invalid URL: {0}\nOnly relative ones (starting with `/') are allowed!".format(repr(path_info)),
+
     query_str = environ.get('QUERY_STRING', '')
 
     req_headers = dict(((
