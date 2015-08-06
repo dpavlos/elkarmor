@@ -320,17 +320,46 @@ class ELKProxyDaemon(UnixDaemon):
             self._servers.append(s)
             s.serve_forever()
 
-        restrictions = {'users': {}, 'group': {}}
+        raw_restrictions = []
+        unrestricted = {'users': set(), 'group': set()}
+
         for (name, restriction) in self._restrictions.iteritems():
-            idx = restriction.pop('index', '').strip()
-            if idx:
-                for (opt, sep) in (('users', ','), ('group', '|')):
-                    for val in ifilter_bool(istrip(parse_split(restriction.pop(opt, ''), sep))):
-                        if val in restrictions[opt]:
-                            if idx not in restrictions[opt][val]:
-                                restrictions[opt][val].append(idx)
-                        else:
-                            restrictions[opt][val] = [idx]
+            restricted = ((
+                opt, ifilter_bool(istrip(parse_split(restriction.pop(opt, ''), sep)))
+            ) for (opt, sep) in (('users', ','), ('group', '|')))
+
+            if restriction.pop('passthrough', '').strip().lower() == 'true':
+                for (opt, vals) in restricted:
+                    for v in vals:
+                        unrestricted[opt].add(v)
+                continue
+
+            restricted = dict(((opt, frozenset(vals)) for (opt, vals) in restricted))
+
+            raw_restrictions.append((
+                restricted,
+                frozenset(itertools.chain.from_iterable((
+                    itertools.product(*itertools.imap((
+                        lambda x: frozenset(ifilter_bool(parse_split(x, ',')))
+                    ), permission)) for permission in restriction.iteritems()
+                )))
+            ))
+
+        restrictions = {'users': {}, 'group': {}}
+
+        for (restricted, permissions) in raw_restrictions:
+            for (opt, vals) in restricted.iteritems():
+                for v in vals:
+                    if v not in unrestricted[opt]:
+                        if v not in restrictions[opt]:
+                            restrictions[opt][v] = {}
+
+                        for (permission, index) in permissions:
+                            if permission not in restrictions[opt][v]:
+                                restrictions[opt][v][permission] = set()
+                            restrictions[opt][v][permission].add(index)
+
+        del raw_restrictions
 
         for (af, listen) in self._cfg['netio']['listen'].iteritems():
             for ((host, port), SSL) in listen.iteritems():
