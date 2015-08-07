@@ -17,7 +17,9 @@
 
 
 import re
+import itertools
 from base64 import b64decode
+from .util import ifilter_bool
 
 
 __all__ = ['app']
@@ -27,6 +29,8 @@ http_basic_auth_header = re.compile(r'Basic\s+(\S*)(?!.)', re.I)
 
 
 def app(environ, start_response):
+    elkenv = environ['elkproxy']
+
     path_info = environ.get('PATH_INFO', '') or '/'
     if not path_info.startswith('/'):
         start_response('403 Forbidden', [('Content-Type', 'text/plain')])
@@ -57,6 +61,25 @@ def app(environ, start_response):
 
             user = cred.split(':', 1)[0]
 
+    passthrough = user is None or user in elkenv['unrestricted']['users']
+
+    if not passthrough:
+        req_idxs = frozenset('*')  # TODO: * == _all
+        for idxs in ifilter_bool(path_info[1:].split('/')):
+            if not idxs.startswith('_'):
+                req_idxs = frozenset(((
+                    idx[1:] if idx.startswith('+') else idx
+                ) for idx in ifilter_bool(idxs.split(',')) if not idx.startswith('-')))
+            break
+
+        allow_idxs = frozenset(itertools.chain.from_iterable(
+            elkenv['restrictions']['users'].get(user, {}).itervalues()
+        ))
+
+        if not (req_idxs <= allow_idxs):  # TODO: compare patterns
+            start_response('403 Forbidden', [('Content-Type', 'text/plain')])
+            return 'You may not access the requested indices',
+
     clen = environ.get('CONTENT_LENGTH', '').strip() or 0
     try:
         clen = int(clen)
@@ -67,7 +90,7 @@ def app(environ, start_response):
         return 'Invalid Content-Length: ' + repr(clen),
 
     body = environ['wsgi.input'].read(clen) if clen else ''
-    conn = environ['elkproxy']['connector']()
+    conn = elkenv['connector']()
 
     conn.request(
         environ['REQUEST_METHOD'],
