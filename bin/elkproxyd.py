@@ -302,24 +302,6 @@ class ELKProxyDaemon(UnixDaemon):
     def run(self):
         http_connector = HTTPConnector(**self._cfg['elasticsearch'])
 
-        sslargs = self._cfg['netio']['sslargs']
-
-        for (x, y) in itertools.permutations(sslargs):
-            if not sslargs[x]:
-                sslargs[x] = sslargs[y]
-
-        def server_wrapper(address_family, SSL):
-            return lambda *args, **kwargs: (HTTPSServer if SSL else HTTPServer)(*args, **dict(itertools.chain(
-                kwargs.iteritems(),
-                sslargs.iteritems() if SSL else (),
-                (('address_family', address_family), ('wsgi_env', {'elkproxy.connector': http_connector}))
-            )))
-
-        def serve(address_family, host, port, SSL):
-            s = make_server(host, port, app, server_class=server_wrapper(address_family, SSL))
-            self._servers.append(s)
-            s.serve_forever()
-
         raw_restrictions = []
         unrestricted = {'users': set(), 'group': set()}
 
@@ -360,6 +342,26 @@ class ELKProxyDaemon(UnixDaemon):
                             restrictions[opt][v][permission].add(index)
 
         del raw_restrictions
+
+        sslargs = self._cfg['netio']['sslargs']
+
+        for (x, y) in itertools.permutations(sslargs):
+            if not sslargs[x]:
+                sslargs[x] = sslargs[y]
+
+        def server_wrapper(address_family, SSL):
+            return lambda *args, **kwargs: (HTTPSServer if SSL else HTTPServer)(*args, **dict(itertools.chain(
+                kwargs.iteritems(),
+                sslargs.iteritems() if SSL else (),
+                (('address_family', address_family), ('wsgi_env', {'elkproxy': {
+                    'connector': http_connector, 'restrictions': restrictions, 'unrestricted': unrestricted
+                }}))
+            )))
+
+        def serve(address_family, host, port, SSL):
+            s = make_server(host, port, app, server_class=server_wrapper(address_family, SSL))
+            self._servers.append(s)
+            s.serve_forever()
 
         for (af, listen) in self._cfg['netio']['listen'].iteritems():
             for ((host, port), SSL) in listen.iteritems():

@@ -67,7 +67,7 @@ def app(environ, start_response):
         return 'Invalid Content-Length: ' + repr(clen),
 
     body = environ['wsgi.input'].read(clen) if clen else ''
-    conn = environ['elkproxy.connector']()
+    conn = environ['elkproxy']['connector']()
 
     conn.request(
         environ['REQUEST_METHOD'],
