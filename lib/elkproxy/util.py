@@ -25,7 +25,7 @@ from socket import inet_aton, inet_pton, inet_ntop, AF_INET, AF_INET6, error as 
 
 __all__ = [
     'parse_split', 'normalize_ip', 'istrip', 'ifilter_bool', 'getifaddrs', 'validate_hostname', 'validate_portnum',
-    'HTTPConnector', 'AF_INET', 'AF_INET6', 'SocketError', 'normalize_pattern'
+    'HTTPConnector', 'AF_INET', 'AF_INET6', 'SocketError', 'normalize_pattern', 'SimplePattern'
 ]
 
 
@@ -252,3 +252,106 @@ def normalize_pattern(pattern):
     """
 
     return multi_asterisk.sub('*', pattern)
+
+
+class SimpleSubPatternChar(str):
+    """
+    A subpattern (of SimplePattern) which consumes one specific character
+    """
+
+    def consume(self, pattern):
+        """
+        If pattern is not empty and its first element is equal to self, yield pattern without its first element
+
+        :type pattern: tuple
+        """
+
+        if pattern and isinstance(pattern[0], SimpleSubPatternChar) and pattern[0] == self:
+            yield pattern[1:]
+
+    def __repr__(self):
+        """
+        :rtype: str
+        """
+
+        return '{0}({1})'.format(type(self).__name__, super(SimpleSubPatternChar, self).__repr__())
+
+
+class SimpleSubPatternAsterisk(object):
+    """
+    A subpattern (of SimplePattern) which consumes everything
+    """
+
+    @staticmethod
+    def consume(pattern):
+        """
+        Yield all possible variants of pattern without some leading elements
+            (1, 2, 3) -> (), (3,), (2, 3), (1, 2, 3)
+
+        :type pattern: tuple
+        """
+
+        for i in xrange(len(pattern), -1, -1):
+            yield pattern[i:]
+
+    @classmethod
+    def __repr__(cls):
+        """
+        :rtype: str
+        """
+
+        return cls.__name__ + '()'
+
+
+simple_subpattern_asterisk = SimpleSubPatternAsterisk()
+
+
+class SimplePattern(tuple):
+    """
+    A pattern (with wildcards) which can be compared with others
+    """
+
+    def __init__(self, pattern):
+        """
+        :param pattern: the pattern as string
+        :type pattern: str
+        """
+
+        self._representation = pattern = normalize_pattern(pattern)
+        super(SimplePattern, self).__init__(((
+            simple_subpattern_asterisk if c == '*' else SimpleSubPatternChar(c)
+        ) for c in pattern) if pattern else ())
+
+    def superset(self, other):
+        """
+        Check whether this pattern is a superset of another one
+
+        :param other: the other pattern to compare this one with
+        :type other: SimplePattern
+        :rtype: bool
+        """
+
+        return bool(tuple(itertools.islice(self._consume(self, other), 0, 1)))
+
+    @classmethod
+    def _consume(cls, p1, p2):
+        """
+        Helper method for .superset() for recursive iteration
+
+        :type p1: tuple
+        :type p2: tuple
+        """
+
+        if p1:
+            for remainder in p1[0].consume(p2):
+                for result in cls._consume(p1[1:], remainder):
+                    yield result
+        elif not p2:
+            yield None
+
+    def __repr__(self):
+        """
+        :rtype: str
+        """
+
+        return '{0}({1})'.format(type(self).__name__, repr(self._representation))
