@@ -17,6 +17,7 @@
 
 
 import itertools
+import re
 import netifaces
 from httplib import HTTPConnection, HTTPSConnection
 from socket import inet_aton, inet_pton, inet_ntop, AF_INET, AF_INET6, error as SocketError, getaddrinfo
@@ -24,7 +25,7 @@ from socket import inet_aton, inet_pton, inet_ntop, AF_INET, AF_INET6, error as 
 
 __all__ = [
     'parse_split', 'normalize_ip', 'istrip', 'ifilter_bool', 'getifaddrs', 'validate_hostname', 'validate_portnum',
-    'HTTPConnector', 'AF_INET', 'AF_INET6', 'SocketError'
+    'HTTPConnector', 'AF_INET', 'AF_INET6', 'SocketError', 'normalize_pattern'
 ]
 
 
@@ -237,3 +238,17 @@ class HTTPConnector(object):
         """
 
         return self.connector_class(self.host, self.port, baseurl=self.baseurl)
+
+
+multi_asterisk = re.compile(r'\*{2,}')
+
+
+def normalize_pattern(pattern):
+    """
+    Return the given pattern with sequences of multiple asterisks replaced by one asterisk
+
+    :type pattern: str
+    :rtype: str
+    """
+
+    return multi_asterisk.sub('*', pattern)
