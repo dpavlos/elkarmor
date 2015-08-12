@@ -311,16 +311,18 @@ class SimplePattern(tuple):
     A pattern (with wildcards) which can be compared with others
     """
 
-    def __init__(self, pattern):
+    def __new__(cls, pattern):
         """
         :param pattern: the pattern as string
         :type pattern: str
         """
 
-        self._representation = pattern = normalize_pattern(pattern)
-        super(SimplePattern, self).__init__(((
+        pattern = normalize_pattern(pattern)
+        self = super(SimplePattern, cls).__new__(cls, ((
             simple_subpattern_asterisk if c == '*' else SimpleSubPatternChar(c)
         ) for c in pattern) if pattern else ())
+        self._representation = pattern
+        return self
 
     def superset(self, other):
         """
