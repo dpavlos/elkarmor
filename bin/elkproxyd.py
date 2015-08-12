@@ -339,9 +339,29 @@ class ELKProxyDaemon(UnixDaemon):
                         for (permission, index) in permissions:
                             if permission not in restrictions[opt][v]:
                                 restrictions[opt][v][permission] = set()
-                            restrictions[opt][v][permission].add(index)
+                            restrictions[opt][v][permission].add(normalize_pattern(index))
 
         del raw_restrictions
+
+        index_patterns = {}
+
+        for (opt, vals) in restrictions.iteritems():
+            for (v, permissions) in vals.iteritems():
+                for (permission, idxs) in permissions.iteritems():
+                    for idx in idxs:
+                        if idx not in index_patterns:
+                            index_patterns[idx] = SimplePattern(idx)
+                    restrictions[opt][v][permission] = frozenset((
+                        idx1 for idx1 in idxs if not any((
+                            idx2 != idx1 and index_patterns[idx2].superset(index_patterns[idx1]) for idx2 in idxs
+                        ))
+                    ))
+
+        for idx in frozenset(index_patterns) - frozenset((idx for vals in restrictions.itervalues()
+                for permissions in vals.itervalues()
+                for idxs in permissions.itervalues()
+                for idx in idxs)):
+            del index_patterns[idx]
 
         sslargs = self._cfg['netio']['sslargs']
 
@@ -354,7 +374,10 @@ class ELKProxyDaemon(UnixDaemon):
                 kwargs.iteritems(),
                 sslargs.iteritems() if SSL else (),
                 (('address_family', address_family), ('wsgi_env', {'elkproxy': {
-                    'connector': http_connector, 'restrictions': restrictions, 'unrestricted': unrestricted
+                    'connector': http_connector,
+                    'restrictions': restrictions,
+                    'unrestricted': unrestricted,
+                    'index_patterns': index_patterns
                 }}))
             )))
 

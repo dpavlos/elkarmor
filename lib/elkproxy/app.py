@@ -19,7 +19,7 @@
 import re
 import itertools
 from base64 import b64decode
-from .util import ifilter_bool
+from .util import ifilter_bool, SimplePattern
 
 
 __all__ = ['app']
@@ -62,6 +62,7 @@ def app(environ, start_response):
             user = cred.split(':', 1)[0]
 
     passthrough = user is None or user in elkenv['unrestricted']['users']
+    index_patterns = elkenv['index_patterns']
 
     if not passthrough:
         req_idxs = frozenset('*')  # TODO: * == _all
@@ -76,9 +77,19 @@ def app(environ, start_response):
             elkenv['restrictions']['users'].get(user, {}).itervalues()
         ))
 
-        if not (req_idxs <= allow_idxs):  # TODO: compare patterns
-            start_response('403 Forbidden', [('Content-Type', 'text/plain')])
-            return 'You may not access the requested indices',
+        req_idxs -= allow_idxs
+        if req_idxs:
+            req_idxs = tuple(((
+                index_patterns[idx] if idx in index_patterns else SimplePattern(idx)
+            ) for idx in req_idxs))
+            allow_idxs = tuple((index_patterns[idx] for idx in allow_idxs))
+            for req_idx in req_idxs:
+                for allow_idx in allow_idxs:
+                    if allow_idx.superset(req_idx):
+                        break
+                else:
+                    start_response('403 Forbidden', [('Content-Type', 'text/plain')])
+                    return 'You may not access all requested indices',
 
     clen = environ.get('CONTENT_LENGTH', '').strip() or 0
     try:
