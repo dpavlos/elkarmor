@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 # Copyright (C) 2015  NETWAYS GmbH, http://netways.de
 #
 # Author: Alexander A. Klimov <alexander.klimov@netways.de>
@@ -28,11 +26,11 @@ from time import sleep
 from threading import Thread
 from wsgiref.simple_server import make_server
 from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
-from daemon import UnixDaemon, get_daemon_option_parser
-from elkproxy.util import *
-from elkproxy.logging_handlers import *
-from elkproxy.http import *
-from elkproxy.app import *
+from .daemon import UnixDaemon, get_daemon_option_parser
+from .util import *
+from .logging_handlers import *
+from .http import *
+from .app import *
 
 
 DEVNULL = open(os.devnull, 'r+b')
@@ -117,7 +115,7 @@ class ELKProxyDaemon(UnixDaemon):
         except IOError as e:
             raise ELKProxyInternalError(ECFGSEM, 'log-io', logging_cfg['path'], e.errno)
 
-        daemon_logger = logging.getLogger('daemon')
+        daemon_logger = logging.getLogger('libelkproxy.daemon')
         for handler in daemon_logger.handlers:
             daemon_logger.removeHandler(handler)
 
@@ -404,7 +402,7 @@ def main():
             )
             break
     opts, args = parser.parse_args()
-    logging.getLogger('daemon').addHandler(logging.StreamHandler())
+    logging.getLogger('libelkproxy.daemon').addHandler(logging.StreamHandler())
     try:
         return getattr(
             ELKProxyDaemon(**dict(itertools.ifilter((lambda x: x[1] is not None), vars(opts).iteritems()))),

@@ -71,26 +71,15 @@ file { '/etc/elkproxyd':
   source => '/vagrant/.puppet/files/elkproxyd.ini',
 }
 
-file { 'python-daemon':
-  path => '/usr/lib/python2.6/site-packages/daemon.py',
-  ensure => link,
-  target => '/vagrant/lib/daemon.py',
-}
-
 exec { 'epel':
   unless => '/bin/rpm --quiet -q epel-release',
   command => '/usr/bin/yum -y install "https://dl.fedoraproject.org/pub/epel/epel-release-latest-6.noarch.rpm"',
   timeout => 0,
 }
 -> package { 'python-netifaces': }
--> file { '/usr/lib/python2.6/site-packages/elkproxy':
+-> file { '/usr/lib/python2.6/site-packages/libelkproxy':
   ensure => link,
-  target => '/vagrant/lib/elkproxy',
-}
--> file { '/usr/local/bin/elkproxyd':
-  ensure => link,
-  target => '/vagrant/bin/elkproxyd.py',
-  require => File['python-daemon'],
+  target => '/vagrant/libelkproxy',
 }
 -> file { '/etc/rc.d/init.d/elkproxy':
   ensure => file,
