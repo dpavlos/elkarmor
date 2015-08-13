@@ -381,16 +381,13 @@ class ELKProxyDaemon(UnixDaemon):
                 }}))
             )))
 
-        def serve(address_family, host, port, SSL):
-            s = make_server(host, port, app, server_class=server_wrapper(address_family, SSL))
-            self._servers.append(s)
-            s.serve_forever()
-
         for (af, listen) in self._cfg['netio']['listen'].iteritems():
-            for ((host, port), SSL) in listen.iteritems():
-                t = Thread(target=serve, args=(af, host, port, SSL))
+            for ((host, port), ssl) in listen.iteritems():
+                s = make_server(host, port, app, server_class=server_wrapper(af, ssl))
+                t = Thread(target=s.serve_forever)
                 t.daemon = True
                 t.start()
+                self._servers.append(s)
                 self._threads.append(t)
 
         while True:
