@@ -37,11 +37,11 @@ file { 'logstash-io.conf':
 
 # Elasticsearch
 
-yumrepo { 'elasticsearch-1.6':
-  descr => 'Elasticsearch 1.6.x repository',
+yumrepo { 'elasticsearch-1.7':
+  descr => 'Elasticsearch 1.7.x repository',
   target => 'elasticsearch.repo',
   ensure => present,
-  baseurl => 'http://packages.elastic.co/elasticsearch/1.6/centos',
+  baseurl => 'http://packages.elastic.co/elasticsearch/1.7/centos',
   enabled => 1,
   gpgkey => 'http://packages.elastic.co/GPG-KEY-elasticsearch',
   repo_gpgcheck => 1,
