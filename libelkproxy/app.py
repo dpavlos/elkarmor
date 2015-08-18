@@ -71,11 +71,13 @@ def app(environ, start_response):
     index_patterns = elkenv['index_patterns']
 
     if not passthrough:
-        req_idxs = None
-        for idxs in ifilter_bool(path_info[1:].split('/')):
-            if not idxs.startswith('_'):
-                req_idxs = frozenset(ifilter_bool(requested_indices(idxs.split(','))))
-            break
+        api = req_idxs = None
+        for path_part in ifilter_bool(path_info[1:].split('/')):
+            if path_part.startswith('_'):
+                api = path_part[1:]
+                break
+            elif req_idxs is None:
+                req_idxs = frozenset(ifilter_bool(requested_indices(path_part.split(','))))
 
         if not req_idxs:
             req_idxs = frozenset('*')
