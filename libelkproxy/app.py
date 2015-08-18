@@ -71,11 +71,14 @@ def app(environ, start_response):
     index_patterns = elkenv['index_patterns']
 
     if not passthrough:
-        req_idxs = frozenset('*')  # TODO: * == _all
+        req_idxs = None
         for idxs in ifilter_bool(path_info[1:].split('/')):
             if not idxs.startswith('_'):
                 req_idxs = frozenset(ifilter_bool(requested_indices(idxs.split(','))))
             break
+
+        if not req_idxs:
+            req_idxs = frozenset('*')
 
         allow_idxs = frozenset(itertools.chain.from_iterable(
             elkenv['restrictions']['users'].get(user, {}).itervalues()
