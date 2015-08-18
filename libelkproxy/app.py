@@ -25,6 +25,12 @@ from .util import ifilter_bool, SimplePattern
 __all__ = ['app']
 
 
+def requested_indices(iterable):
+    for idx in iterable:
+        if not idx.startswith('-'):
+            yield idx[1:] if idx.startswith('+') else idx
+
+
 http_basic_auth_header = re.compile(r'Basic\s+(\S*)(?!.)', re.I)
 
 
@@ -68,9 +74,7 @@ def app(environ, start_response):
         req_idxs = frozenset('*')  # TODO: * == _all
         for idxs in ifilter_bool(path_info[1:].split('/')):
             if not idxs.startswith('_'):
-                req_idxs = frozenset(((
-                    idx[1:] if idx.startswith('+') else idx
-                ) for idx in ifilter_bool(idxs.split(',')) if not idx.startswith('-')))
+                req_idxs = frozenset(ifilter_bool(requested_indices(idxs.split(','))))
             break
 
         allow_idxs = frozenset(itertools.chain.from_iterable(
