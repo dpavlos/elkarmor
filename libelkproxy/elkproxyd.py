@@ -341,7 +341,7 @@ class ELKProxyDaemon(UnixDaemon):
 
         del raw_restrictions
 
-        index_patterns = {}
+        index_patterns = {'*': SimplePattern('*')}
 
         for (opt, vals) in restrictions.iteritems():
             for (v, permissions) in vals.iteritems():
@@ -355,7 +355,7 @@ class ELKProxyDaemon(UnixDaemon):
                         ))
                     ))
 
-        for idx in frozenset(index_patterns) - frozenset((idx for vals in restrictions.itervalues()
+        for idx in frozenset(index_patterns) - frozenset('*') - frozenset((idx for vals in restrictions.itervalues()
                 for permissions in vals.itervalues()
                 for idxs in permissions.itervalues()
                 for idx in idxs)):
