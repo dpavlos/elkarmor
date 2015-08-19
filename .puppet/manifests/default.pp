@@ -1,3 +1,11 @@
+define iptables_allow_tcp_in() {
+  exec { "iptables-allow-tcp-${name}":
+    unless => "/bin/grep -qFxe '-A INPUT -p tcp -m tcp --dport ${name} -j ACCEPT' /etc/sysconfig/iptables",
+    command => "/sbin/iptables -I INPUT -p tcp -m tcp --dport ${name} -j ACCEPT && /sbin/iptables-save >/etc/sysconfig/iptables",
+  }
+}
+
+
 # Java
 
 package { 'java':
@@ -92,6 +100,8 @@ exec { 'epel':
   enable => true,
 }
 
+iptables_allow_tcp_in { '59200': }
+
 
 # Kibana
 
@@ -142,7 +152,4 @@ package { 'mod_ssl': }
   notify => Service['httpd'],
 }
 
-exec { 'iptables-allow-httpd':
-  unless => '/bin/grep -qFxe "-A INPUT -p tcp -m tcp --dport 58080 -j ACCEPT" /etc/sysconfig/iptables',
-  command => '/sbin/iptables -I INPUT -p tcp -m tcp --dport 58080 -j ACCEPT && /sbin/iptables-save >/etc/sysconfig/iptables',
-}
+iptables_allow_tcp_in { '58080': }
