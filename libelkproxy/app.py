@@ -73,11 +73,12 @@ def app(environ, start_response):
     if not passthrough:
         api = req_idxs = None
         for path_part in ifilter_bool(path_info[1:].split('/')):
-            if path_part.startswith('_'):
+            underscore = path_part.startswith('_')
+            if req_idxs is None:
+                req_idxs = not underscore and frozenset(ifilter_bool(requested_indices(path_part.split(','))))
+            if underscore and path_part != '_all':
                 api = path_part[1:]
                 break
-            elif req_idxs is None:
-                req_idxs = frozenset(ifilter_bool(requested_indices(path_part.split(','))))
 
         if not req_idxs:
             req_idxs = frozenset('*')
