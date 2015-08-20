@@ -153,8 +153,7 @@ def app(environ, start_response):
                         start_response('400 Bad Request', [('Content-Type', 'text/plain')])
                         return 'Invalid JSON: ' + repr(l),
 
-                    if isinstance(j, dict):
-                        body_json.append(j)
+                    body_json.append(j if isinstance(j, dict) else {})
             finally:
                 sio.close()
 
