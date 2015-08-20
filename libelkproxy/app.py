@@ -26,6 +26,10 @@ __all__ = ['app']
 
 
 def requested_indices(iterable):
+    """
+    Yield only indices which don't start with a `-', without a leading `+'
+    """
+
     for idx in iterable:
         if not idx.startswith('-'):
             yield idx[1:] if idx.startswith('+') else idx
@@ -37,6 +41,8 @@ http_basic_auth_header = re.compile(r'Basic\s+(\S*)(?!.)', re.I)
 def app(environ, start_response):
     elkenv = environ['elkproxy']
 
+    # Deny absolute URLs
+
     path_info = environ.get('PATH_INFO', '') or '/'
     if not path_info.startswith('/'):
         start_response('403 Forbidden', [('Content-Type', 'text/plain')])
@@ -44,9 +50,13 @@ def app(environ, start_response):
 
     query_str = environ.get('QUERY_STRING', '')
 
+    # Collect HTTP headers
+
     req_headers = dict(((
         k[5:].lower().replace('_', '-'), v
     ) for (k, v) in environ.iteritems() if k.startswith('HTTP_')))
+
+    # Get username
 
     user = None
     http_auth_header = req_headers.get('authorization')
@@ -71,6 +81,8 @@ def app(environ, start_response):
     index_patterns = elkenv['index_patterns']
 
     if not passthrough:
+        # Determine API and requested indices
+
         api = req_idxs = None
         for path_part in ifilter_bool(path_info[1:].split('/')):
             underscore = path_part.startswith('_')
@@ -83,9 +95,13 @@ def app(environ, start_response):
         if not req_idxs:
             req_idxs = frozenset('*')
 
+        # Collect allowed indices
+
         allow_idxs = frozenset(itertools.chain.from_iterable(
             elkenv['restrictions']['users'].get(user, {}).itervalues()
         ))
+
+        # Compare requested indices with allowed ones
 
         req_idxs -= allow_idxs
         if req_idxs:
@@ -101,6 +117,8 @@ def app(environ, start_response):
                     start_response('403 Forbidden', [('Content-Type', 'text/plain')])
                     return 'You may not access all requested indices',
 
+    # Get content's length
+
     clen = environ.get('CONTENT_LENGTH', '').strip() or 0
     try:
         clen = int(clen)
@@ -109,6 +127,8 @@ def app(environ, start_response):
     except ValueError:
         start_response('400 Bad Request', [('Content-Type', 'text/plain')])
         return 'Invalid Content-Length: ' + repr(clen),
+
+    # Forward request
 
     body = environ['wsgi.input'].read(clen) if clen else ''
     conn = elkenv['connector']()
@@ -119,6 +139,9 @@ def app(environ, start_response):
         body,
         req_headers
     )
+
+    # Forward response
+
     response = conn.getresponse()
 
     status = response.status
