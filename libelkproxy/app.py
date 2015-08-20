@@ -18,11 +18,17 @@
 
 import re
 import itertools
+import json
 from base64 import b64decode
-from .util import ifilter_bool, normalize_pattern, SimplePattern
+from cStringIO import StringIO
+from .util import ifilter_bool, istrip, normalize_pattern, SimplePattern
 
 
 __all__ = ['app']
+
+
+class RequestedAsterisk(Exception):
+    pass
 
 
 def requested_indices(iterable):
@@ -80,10 +86,10 @@ def app(environ, start_response):
     passthrough = user is None or user in elkenv['unrestricted']['users']
     index_patterns = elkenv['index_patterns'].copy()
 
+    api = req_idxs = None
     if not passthrough:
         # Determine API and requested indices
 
-        api = req_idxs = None
         for path_part in ifilter_bool(path_info[1:].split('/')):
             underscore = path_part.startswith('_')
             if req_idxs is None:
@@ -127,9 +133,67 @@ def app(environ, start_response):
         start_response('400 Bad Request', [('Content-Type', 'text/plain')])
         return 'Invalid Content-Length: ' + repr(clen),
 
-    # Forward request
+    # Read request
 
     body = environ['wsgi.input'].read(clen) if clen else ''
+
+    if not passthrough and (api or '') in ('msearch', 'mget', 'bulk'):
+        # Determine indices requested by JSON body
+
+        if api != 'mget':
+            body_json = []
+            sio = StringIO(body)
+            try:
+                for l in (itertools.imap((lambda x: x or '{}'), istrip((
+                    l for (l, b) in itertools.izip(sio, itertools.cycle((True, False))) if b
+                ))) if api == 'msearch' else istrip(sio)):
+                    try:
+                        j = json.loads(l)
+                    except ValueError:
+                        start_response('400 Bad Request', [('Content-Type', 'text/plain')])
+                        return 'Invalid JSON: ' + repr(l),
+
+                    if isinstance(j, dict):
+                        body_json.append(j)
+            finally:
+                sio.close()
+
+            if api == 'msearch':
+                body_idxs = []
+                try:
+                    for j in body_json:
+                        json_idxs = tuple((j[k] for k in ('index', 'indices') if k in j))
+                        if not json_idxs:
+                            body_idxs.append(req_idxs)
+                            continue
+
+                        line_idxs = frozenset()
+
+                        for idxs in json_idxs:
+                            if isinstance(idxs, str):
+                                idxs = idxs.split(',')
+                            elif isinstance(idxs, list):
+                                if not all((isinstance(idx, str) for idx in idxs)):
+                                    raise RequestedAsterisk()
+                            else:
+                                raise RequestedAsterisk()
+
+                            idxs = frozenset(itertools.imap(
+                                normalize_pattern, ifilter_bool(requested_indices(idxs))
+                            ))
+                            if not idxs or idxs & frozenset(('*', '_all')):
+                                raise RequestedAsterisk()
+
+                            line_idxs |= idxs
+
+                        body_idxs.append(line_idxs)
+                except RequestedAsterisk:
+                    body_idxs = frozenset('*')
+                else:
+                    body_idxs = frozenset(itertools.chain.from_iterable(body_idxs))
+
+    # Forward request
+
     conn = elkenv['connector']()
 
     conn.request(
