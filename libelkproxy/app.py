@@ -19,7 +19,7 @@
 import re
 import itertools
 from base64 import b64decode
-from .util import ifilter_bool, SimplePattern
+from .util import ifilter_bool, normalize_pattern, SimplePattern
 
 
 __all__ = ['app']
@@ -78,7 +78,7 @@ def app(environ, start_response):
             user = cred.split(':', 1)[0]
 
     passthrough = user is None or user in elkenv['unrestricted']['users']
-    index_patterns = elkenv['index_patterns']
+    index_patterns = elkenv['index_patterns'].copy()
 
     if not passthrough:
         # Determine API and requested indices
@@ -87,7 +87,9 @@ def app(environ, start_response):
         for path_part in ifilter_bool(path_info[1:].split('/')):
             underscore = path_part.startswith('_')
             if req_idxs is None:
-                req_idxs = not underscore and frozenset(ifilter_bool(requested_indices(path_part.split(','))))
+                req_idxs = not underscore and frozenset(itertools.imap(
+                    normalize_pattern, ifilter_bool(requested_indices(path_part.split(',')))
+                ))
             if underscore and path_part != '_all':
                 api = path_part[1:]
                 break
@@ -103,17 +105,14 @@ def app(environ, start_response):
 
         # Compare requested indices with allowed ones
 
-        req_idxs -= allow_idxs
-        if req_idxs:
-            req_idxs = tuple(((
-                index_patterns[idx] if idx in index_patterns else SimplePattern(idx)
-            ) for idx in req_idxs))
-            allow_idxs = tuple((index_patterns[idx] for idx in allow_idxs))
-            for req_idx in req_idxs:
-                for allow_idx in allow_idxs:
-                    if allow_idx.superset(req_idx):
-                        break
-                else:
+        remain_idxs = req_idxs - allow_idxs
+        if remain_idxs:
+            for idx in remain_idxs - frozenset(index_patterns):
+                index_patterns[idx] = SimplePattern(idx)
+
+            allow_patterns = tuple((index_patterns[idx] for idx in allow_idxs))
+            for remain_pattern in (index_patterns[idx] for idx in remain_idxs):
+                if not any((allow_pattern.superset(remain_pattern) for allow_pattern in allow_patterns)):
                     start_response('403 Forbidden', [('Content-Type', 'text/plain')])
                     return 'You may not access all requested indices',
 
