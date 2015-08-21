@@ -94,21 +94,30 @@ def app(environ, start_response):
     passthrough = user is None or user in elkenv['unrestricted']['users']
     index_patterns = elkenv['index_patterns'].copy()
 
-    api = req_idxs = None
+    api = req_idxs = defidx = None
+    idx_given = False
     if not passthrough:
         # Determine API and requested indices
 
         for path_part in ifilter_bool(path_info[1:].split('/')):
             underscore = path_part.startswith('_')
             if req_idxs is None:
-                req_idxs = not underscore and frozenset(itertools.imap(
-                    normalize_pattern, ifilter_bool(requested_indices(path_part.split(',')))
-                ))
+                req_idxs = not underscore and path_part
             if underscore and path_part != '_all':
                 api = path_part[1:]
                 break
 
-        if not req_idxs:
+        mget_bulk = (api or '') in ('mget', 'bulk')
+        if req_idxs:
+            req_idxs = frozenset((req_idxs,) if mget_bulk else itertools.imap(
+                normalize_pattern, ifilter_bool(requested_indices(req_idxs.split(',')))
+            ))
+
+        if req_idxs:
+            idx_given = True
+            if mget_bulk:
+                defidx = tuple(req_idxs)[0]
+        else:
             req_idxs = frozenset('*')
 
         # Collect allowed indices
@@ -117,18 +126,19 @@ def app(environ, start_response):
             elkenv['restrictions']['users'].get(user, {}).itervalues()
         ))
 
-        # Compare requested indices with allowed ones
+        if not mget_bulk:
+            # Compare requested indices with allowed ones
 
-        remain_idxs = req_idxs - allow_idxs
-        if remain_idxs:
-            for idx in remain_idxs - frozenset(index_patterns):
-                index_patterns[idx] = SimplePattern(idx)
+            remain_idxs = req_idxs - allow_idxs
+            if remain_idxs:
+                for idx in remain_idxs - frozenset(index_patterns):
+                    index_patterns[idx] = SimplePattern(idx)
 
-            allow_patterns = tuple((index_patterns[idx] for idx in allow_idxs))
-            for remain_pattern in (index_patterns[idx] for idx in remain_idxs):
-                if not any((allow_pattern.superset(remain_pattern) for allow_pattern in allow_patterns)):
-                    start_response('403 Forbidden', [('Content-Type', 'text/plain')])
-                    return 'You may not access all requested indices',
+                allow_patterns = tuple((index_patterns[idx] for idx in allow_idxs))
+                for remain_pattern in (index_patterns[idx] for idx in remain_idxs):
+                    if not any((allow_pattern.superset(remain_pattern) for allow_pattern in allow_patterns)):
+                        start_response('403 Forbidden', [('Content-Type', 'text/plain')])
+                        return 'You may not access all requested indices',
 
     # Get content's length
 
@@ -206,6 +216,38 @@ def app(environ, start_response):
                         body_idxs = frozenset('*')
                     else:
                         body_idxs = frozenset(itertools.chain.from_iterable(body_idxs))
+                else:  # api == 'bulk'
+                    actions = ('index', 'create', 'delete', 'update')
+                    actions_source = ('index', 'create')
+                    body_idxs = set()
+                    skip = False
+
+                    for j in body_json:
+                        if skip:
+                            skip = False
+                            continue
+
+                        l = len(j)
+                        if l != 1:
+                            raise InvalidAPICall(
+                                'invalid operation: {0} (must contain exactly one action -- {1} given)'.format(
+                                    json.dumps(j), l
+                                )
+                            )
+
+                        action, meta_data = j.items()[0]
+                        if action not in actions:
+                            raise InvalidAPICall('invalid action: {0} (must be one of the following: {1})'.format(
+                                json.dumps(action), ', '.join(actions)
+                            ))
+
+                        if not ('_index' in meta_data or idx_given):
+                            raise InvalidAPICall('invalid operation: {0} (no index given)'.format(json.dumps(j)))
+
+                        body_idxs.add(meta_data.get('_index', defidx))
+
+                        if action in actions_source:
+                            skip = True
             except InvalidAPICall as e:
                 m = str(e)
                 start_response('422 Unprocessable Entity', [('Content-Type', 'text/plain')])
