@@ -27,7 +27,15 @@ from .util import ifilter_bool, istrip, normalize_pattern, SimplePattern
 __all__ = ['app']
 
 
-class RequestedAsterisk(Exception):
+class ELKProxyAppInternalException(Exception):
+    pass
+
+
+class RequestedAsterisk(ELKProxyAppInternalException):
+    pass
+
+
+class InvalidAPICall(ELKProxyAppInternalException):
     pass
 
 
@@ -141,55 +149,67 @@ def app(environ, start_response):
         # Determine indices requested by JSON body
 
         if api != 'mget':
-            body_json = []
-            sio = StringIO(body)
             try:
-                for l in (itertools.imap((lambda x: x or '{}'), istrip((
-                    l for (l, b) in itertools.izip(sio, itertools.cycle((True, False))) if b
-                ))) if api == 'msearch' else istrip(sio)):
-                    try:
-                        j = json.loads(l)
-                    except ValueError:
-                        start_response('400 Bad Request', [('Content-Type', 'text/plain')])
-                        return 'Invalid JSON: ' + repr(l),
-
-                    body_json.append(j if isinstance(j, dict) else {})
-            finally:
-                sio.close()
-
-            if api == 'msearch':
-                body_idxs = []
+                body_json = []
+                sio = StringIO(body)
                 try:
-                    for j in body_json:
-                        json_idxs = tuple((j[k] for k in ('index', 'indices') if k in j))
-                        if not json_idxs:
-                            body_idxs.append(req_idxs)
-                            continue
+                    for l in (itertools.imap((lambda x: x or '{}'), istrip((
+                        l for (l, b) in itertools.izip(sio, itertools.cycle((True, False))) if b
+                    ))) if api == 'msearch' else istrip(sio)):
+                        try:
+                            j = json.loads(l)
+                        except ValueError:
+                            start_response('400 Bad Request', [('Content-Type', 'text/plain')])
+                            return 'Invalid JSON: ' + repr(l),
 
-                        line_idxs = frozenset()
+                        if not isinstance(j, dict):
+                            raise InvalidAPICall('not a JSON object: ' + repr(l))
+                        body_json.append(j)
+                finally:
+                    sio.close()
 
-                        for idxs in json_idxs:
-                            if isinstance(idxs, str):
-                                idxs = idxs.split(',')
-                            elif isinstance(idxs, list):
-                                if not all((isinstance(idx, str) for idx in idxs)):
+                if api == 'msearch':
+                    body_idxs = []
+                    try:
+                        for j in body_json:
+                            json_idxs = tuple((j[k] for k in ('index', 'indices') if k in j))
+                            if not json_idxs:
+                                body_idxs.append(req_idxs)
+                                continue
+
+                            line_idxs = frozenset()
+
+                            for idxs in json_idxs:
+                                if isinstance(idxs, str):
+                                    idxs = idxs.split(',')
+                                elif isinstance(idxs, list):
+                                    for idx in idxs:
+                                        if not isinstance(idx, str):
+                                            raise InvalidAPICall('invalid index: {0} (must be a string)'.format(
+                                                json.dumps(idx)
+                                            ))
+                                else:
+                                    raise InvalidAPICall('invalid indices: {0} (must be an array or a string)'.format(
+                                        json.dumps(idxs)
+                                    ))
+
+                                idxs = frozenset(itertools.imap(
+                                    normalize_pattern, ifilter_bool(requested_indices(idxs))
+                                ))
+                                if not idxs or idxs & frozenset(('*', '_all')):
                                     raise RequestedAsterisk()
-                            else:
-                                raise RequestedAsterisk()
 
-                            idxs = frozenset(itertools.imap(
-                                normalize_pattern, ifilter_bool(requested_indices(idxs))
-                            ))
-                            if not idxs or idxs & frozenset(('*', '_all')):
-                                raise RequestedAsterisk()
+                                line_idxs |= idxs
 
-                            line_idxs |= idxs
-
-                        body_idxs.append(line_idxs)
-                except RequestedAsterisk:
-                    body_idxs = frozenset('*')
-                else:
-                    body_idxs = frozenset(itertools.chain.from_iterable(body_idxs))
+                            body_idxs.append(line_idxs)
+                    except RequestedAsterisk:
+                        body_idxs = frozenset('*')
+                    else:
+                        body_idxs = frozenset(itertools.chain.from_iterable(body_idxs))
+            except InvalidAPICall as e:
+                m = str(e)
+                start_response('422 Unprocessable Entity', [('Content-Type', 'text/plain')])
+                return 'Invalid Elasticsearch API call or not analyzable' + (m and ': ' + m),
 
     # Forward request
 
