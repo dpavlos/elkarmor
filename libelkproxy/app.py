@@ -39,6 +39,10 @@ class InvalidAPICall(ELKProxyAppInternalException):
     pass
 
 
+class InvalidJSON(ELKProxyAppInternalException):
+    pass
+
+
 def requested_indices(iterable):
     """
     Yield only indices which don't start with a `-', without a leading `+'
@@ -47,6 +51,13 @@ def requested_indices(iterable):
     for idx in iterable:
         if not idx.startswith('-'):
             yield idx[1:] if idx.startswith('+') else idx
+
+
+def parse_json(s):
+    try:
+        return json.loads(s)
+    except ValueError:
+        raise InvalidJSON(s)
 
 
 http_basic_auth_header = re.compile(r'Basic\s+(\S*)(?!.)', re.I)
@@ -163,17 +174,14 @@ def app(environ, start_response):
                 body_json = []
                 sio = StringIO(body)
                 try:
-                    for l in (itertools.imap((lambda x: x or '{}'), istrip((
-                        l for (l, b) in itertools.izip(sio, itertools.cycle((True, False))) if b
-                    ))) if api == 'msearch' else istrip(sio)):
-                        try:
-                            j = json.loads(l)
-                        except ValueError:
-                            start_response('400 Bad Request', [('Content-Type', 'text/plain')])
-                            return 'Invalid JSON: ' + repr(l),
-
+                    for j in itertools.imap(
+                        parse_json,
+                        itertools.imap((lambda x: x or '{}'), istrip((
+                            l for (l, b) in itertools.izip(sio, itertools.cycle((True, False))) if b
+                        ))) if api == 'msearch' else istrip(sio)
+                    ):
                         if not isinstance(j, dict):
-                            raise InvalidAPICall('not a JSON object: ' + repr(l))
+                            raise InvalidAPICall('not a JSON object: ' + json.dumps(j))
                         body_json.append(j)
                 finally:
                     sio.close()
@@ -199,9 +207,11 @@ def app(environ, start_response):
                                                 json.dumps(idx)
                                             ))
                                 else:
-                                    raise InvalidAPICall('invalid indices: {0} (must be an array or a string)'.format(
-                                        json.dumps(idxs)
-                                    ))
+                                    raise InvalidAPICall(
+                                        'invalid indices: {0} (must be an array or a string)'.format(
+                                            json.dumps(idxs)
+                                        )
+                                    )
 
                                 idxs = frozenset(itertools.imap(
                                     normalize_pattern, ifilter_bool(requested_indices(idxs))
@@ -252,6 +262,9 @@ def app(environ, start_response):
                 m = str(e)
                 start_response('422 Unprocessable Entity', [('Content-Type', 'text/plain')])
                 return 'Invalid Elasticsearch API call or not analyzable' + (m and ': ' + m),
+            except InvalidJSON as e:
+                start_response('400 Bad Request', [('Content-Type', 'text/plain')])
+                return 'Invalid JSON: ' + repr(str(e)),
 
     # Forward request
 
