@@ -181,18 +181,15 @@ def app(environ, start_response):
         # Determine indices requested by JSON body
 
         if api != 'mget':
+            sio = StringIO(body)
             try:
-                sio = StringIO(body)
-                try:
-                    body_json = tuple(itertools.imap(
-                        (lambda x: assert_json_type(parse_json(x), dict)),
-                        itertools.imap(
-                            (lambda x: x or '{}'),
-                            istrip((l for (l, b) in itertools.izip(sio, itertools.cycle((True, False))) if b))
-                        ) if api == 'msearch' else istrip(sio)
-                    ))
-                finally:
-                    sio.close()
+                body_json = itertools.imap(
+                    (lambda x: assert_json_type(parse_json(x), dict)),
+                    itertools.imap(
+                        (lambda x: x or '{}'),
+                        istrip((l for (l, b) in itertools.izip(sio, itertools.cycle((True, False))) if b))
+                    ) if api == 'msearch' else istrip(sio)
+                )
 
                 if api == 'msearch':
                     body_idxs = []
@@ -273,6 +270,8 @@ def app(environ, start_response):
             except InvalidJSON as e:
                 start_response('400 Bad Request', [('Content-Type', 'text/plain')])
                 return 'Invalid JSON: ' + repr(str(e)),
+            finally:
+                sio.close()
 
     # Forward request
 
