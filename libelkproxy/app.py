@@ -60,6 +60,17 @@ def parse_json(s):
         raise InvalidJSON(s)
 
 
+json_types = (('object', dict),)
+
+
+def assert_json_type(j, t):
+    for (s, json_type) in json_types:
+        if issubclass(t, json_type):
+            if not isinstance(j, json_type):
+                raise InvalidAPICall('not a JSON {0}: {1}'.format(s, json.dumps(j)))
+            return j
+
+
 http_basic_auth_header = re.compile(r'Basic\s+(\S*)(?!.)', re.I)
 
 
@@ -171,18 +182,15 @@ def app(environ, start_response):
 
         if api != 'mget':
             try:
-                body_json = []
                 sio = StringIO(body)
                 try:
-                    for j in itertools.imap(
-                        parse_json,
-                        itertools.imap((lambda x: x or '{}'), istrip((
-                            l for (l, b) in itertools.izip(sio, itertools.cycle((True, False))) if b
-                        ))) if api == 'msearch' else istrip(sio)
-                    ):
-                        if not isinstance(j, dict):
-                            raise InvalidAPICall('not a JSON object: ' + json.dumps(j))
-                        body_json.append(j)
+                    body_json = tuple(itertools.imap(
+                        (lambda x: assert_json_type(parse_json(x), dict)),
+                        itertools.imap(
+                            (lambda x: x or '{}'),
+                            istrip((l for (l, b) in itertools.izip(sio, itertools.cycle((True, False))) if b))
+                        ) if api == 'msearch' else istrip(sio)
+                    ))
                 finally:
                     sio.close()
 
