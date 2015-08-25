@@ -346,6 +346,9 @@ class SimplePattern(tuple):
         :rtype: bool
         """
 
+        if self == other:
+            return True
+
         for x in self._consume(self, other):
             return True
         return False
