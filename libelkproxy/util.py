@@ -357,3 +357,20 @@ class SimplePattern(tuple):
         """
 
         return '{0}({1})'.format(type(self).__name__, repr(self._representation))
+
+
+def json_unicode_to_str(j, encoding='utf_8'):
+    """
+    Return a copy of j with all unicode instances .encode()d with given encoding (recursively)
+
+    :param j: parsed JSON as returned by json.loads()
+    :type encoding: str
+    """
+
+    if isinstance(j, dict):
+        return dict(((json_unicode_to_str(y, encoding=encoding) for y in x) for x in j.iteritems()))
+
+    if isinstance(j, list):
+        return [json_unicode_to_str(x, encoding=encoding) for x in j]
+
+    return j.encode(encoding) if isinstance(j, unicode) else j

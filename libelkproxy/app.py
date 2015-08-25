@@ -21,7 +21,7 @@ import itertools
 import json
 from base64 import b64decode
 from cStringIO import StringIO
-from .util import ifilter_bool, istrip, normalize_pattern, SimplePattern
+from .util import ifilter_bool, istrip, json_unicode_to_str, normalize_pattern, SimplePattern
 
 
 __all__ = ['app']
@@ -183,13 +183,11 @@ def app(environ, start_response):
         if api != 'mget':
             sio = StringIO(body)
             try:
-                body_json = itertools.imap(
-                    (lambda x: assert_json_type(parse_json(x), dict)),
-                    itertools.imap(
-                        (lambda x: x or '{}'),
-                        istrip((l for (l, b) in itertools.izip(sio, itertools.cycle((True, False))) if b))
-                    ) if api == 'msearch' else istrip(sio)
-                )
+                body_json = (json_unicode_to_str(assert_json_type(parse_json(l), dict)) for l in (
+                    (l or '{}' for l in istrip((
+                        l for (l, b) in itertools.izip(sio, itertools.cycle((True, False))) if b
+                    ))) if api == 'msearch' else istrip(sio)
+                ))
 
                 if api == 'msearch':
                     body_idxs = []
