@@ -302,6 +302,12 @@ class SimpleSubPatternAsterisk(object):
 
         return cls.__name__ + '()'
 
+    def __hash__(self):
+        return 0
+
+    def __eq__(self, other):
+        return type(self) is type(other)
+
 
 simple_subpattern_asterisk = SimpleSubPatternAsterisk()
 
