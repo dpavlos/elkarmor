@@ -333,7 +333,9 @@ class SimplePattern(tuple):
         :rtype: bool
         """
 
-        return bool(tuple(itertools.islice(self._consume(self, other), 0, 1)))
+        for x in self._consume(self, other):
+            return True
+        return False
 
     @classmethod
     def _consume(cls, p1, p2):
