@@ -376,6 +376,18 @@ class SimplePattern(tuple):
 
         return self._representation
 
+    @staticmethod
+    def without_subsets(iterable):
+        """
+        Yield all SimplePatterns of iterable which don't have supersets of them in iterable
+            (SimplePattern('a*'), SimplePattern('ab*'), SimplePattern('c*')) -> SimplePattern('a*'), SimplePattern('c*')
+        """
+
+        patterns = frozenset(iterable)
+        for p1 in patterns:
+            if not any((p2 != p1 and p2.superset(p1) for p2 in patterns)):
+                yield p1
+
 
 def json_unicode_to_str(j, encoding='utf_8'):
     """
