@@ -311,18 +311,25 @@ class SimplePattern(tuple):
     A pattern (with wildcards) which can be compared with others
     """
 
-    def __new__(cls, pattern):
+    def __new__(cls, pattern, literal=False):
         """
         :param pattern: the pattern as string
         :type pattern: str
         """
 
         pattern = normalize_pattern(pattern)
-        self = super(SimplePattern, cls).__new__(cls, ((
-            simple_subpattern_asterisk if c == '*' else SimpleSubPatternChar(c)
-        ) for c in pattern) if pattern else ())
-        self._representation = pattern
+        self = super(SimplePattern, cls).__new__(cls, pattern and (
+            itertools.imap(SimpleSubPatternChar, pattern) if literal else ((
+                simple_subpattern_asterisk if c == '*' else SimpleSubPatternChar(c)
+            ) for c in pattern)
+        ))
+        self._representation = '{0}({1}{2})'.format(
+            cls.__name__, repr(pattern), ', literal=True' if literal else ''
+        )
         return self
+
+    def __init__(self, pattern, literal=False):
+        super(SimplePattern, self).__init__()
 
     def superset(self, other):
         """
@@ -358,7 +365,7 @@ class SimplePattern(tuple):
         :rtype: str
         """
 
-        return '{0}({1})'.format(type(self).__name__, repr(self._representation))
+        return self._representation
 
 
 def json_unicode_to_str(j, encoding='utf_8'):
