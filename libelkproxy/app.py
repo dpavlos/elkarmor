@@ -113,56 +113,7 @@ def app(environ, start_response):
 
             user = cred.split(':', 1)[0]
 
-    passthrough = user is None or user in elkenv['unrestricted']['users']
-    index_patterns = elkenv['index_patterns'].copy()
-
-    api = req_idxs = defidx = None
-    idx_given = False
-    if not passthrough:
-        # Determine API and requested indices
-
-        for path_part in ifilter_bool(path_info[1:].split('/')):
-            underscore = path_part.startswith('_')
-            if req_idxs is None:
-                req_idxs = not underscore and path_part
-            if underscore and path_part != '_all':
-                api = path_part[1:]
-                break
-
-        mget_bulk = (api or '') in ('mget', 'bulk')
-        if req_idxs:
-            req_idxs = frozenset((req_idxs,) if mget_bulk else itertools.imap(
-                normalize_pattern, ifilter_bool(requested_indices(req_idxs.split(',')))
-            ))
-
-        if req_idxs:
-            idx_given = True
-            if mget_bulk:
-                defidx = tuple(req_idxs)[0]
-        else:
-            req_idxs = frozenset('*')
-
-        # Collect allowed indices
-
-        allow_idxs = frozenset(itertools.chain.from_iterable(
-            elkenv['restrictions']['users'].get(user, {}).itervalues()
-        ))
-
-        if not mget_bulk:
-            # Compare requested indices with allowed ones
-
-            remain_idxs = req_idxs - allow_idxs
-            if remain_idxs:
-                for idx in remain_idxs - frozenset(index_patterns):
-                    index_patterns[idx] = SimplePattern(idx)
-
-                allow_patterns = tuple((index_patterns[idx] for idx in allow_idxs))
-                for remain_pattern in (index_patterns[idx] for idx in remain_idxs):
-                    if not any((allow_pattern.superset(remain_pattern) for allow_pattern in allow_patterns)):
-                        start_response('403 Forbidden', [('Content-Type', 'text/plain')])
-                        return 'You may not access all requested indices',
-
-    # Get content's length
+    # Read request
 
     clen = environ.get('CONTENT_LENGTH', '').strip() or 0
     try:
@@ -173,119 +124,153 @@ def app(environ, start_response):
         start_response('400 Bad Request', [('Content-Type', 'text/plain')])
         return 'Invalid Content-Length: ' + repr(clen),
 
-    # Read request
-
     body = environ['wsgi.input'].read(clen) if clen else ''
 
-    if not passthrough and (api or '') in ('msearch', 'mget', 'bulk'):
-        # Determine indices requested by JSON body
+    if not (user is None or user in elkenv['unrestricted']['users']):
+        # Determine API and requested indices
 
-        try:
-            if api == 'mget':
-                body_json = json_unicode_to_str(assert_json_type(parse_json(body.strip()), dict))
-                noidx = False
-                body_idxs = set()
+        api = ''
+        req_idxs = None
+        for path_part in ifilter_bool(path_info[1:].split('/')):
+            _all = path_part == '_all'
+            underscore = path_part.startswith('_')
+            if req_idxs is None:
+                req_idxs = (_all or not underscore or ',' in path_part) and path_part
+            if underscore and not _all:
+                api = path_part[1:]
+                break
 
-                for doc in (assert_json_type(doc, dict) for doc in assert_json_type(body_json.get('docs', []), list)):
-                    if '_index' in doc:
-                        body_idxs.add(assert_json_type(doc['_index'], str))
-                    else:
-                        noidx = True
+        if req_idxs:
+            req_idxs = (
+                SimplePattern(req_idxs, literal=True),
+            ) if api in ('mget', 'bulk') else (
+                SimplePattern('*'),
+            ) if req_idxs == '_all' else tuple(itertools.imap(
+                SimplePattern, ifilter_bool(requested_indices(req_idxs.split(',')))
+            ))
 
-                if idx_given:
-                    body_idxs.add(defidx)
-                elif noidx or assert_json_type(body_json.get('ids', []), list):
-                    raise InvalidAPICall('no index given for some documents to fetch')
-            else:
-                sio = StringIO(body)
-                try:
-                    body_json = (json_unicode_to_str(assert_json_type(parse_json(l), dict)) for l in (
-                        (l or '{}' for l in istrip((
-                            l for (l, b) in itertools.izip(sio, itertools.cycle((True, False))) if b
-                        ))) if api == 'msearch' else istrip(sio)
-                    ))
+        msearch_mget_bulk = api in ('msearch', 'mget', 'bulk')
+        if not req_idxs:
+            req_idxs = () if msearch_mget_bulk else (SimplePattern('*'),)
 
-                    if api == 'msearch':
-                        body_idxs = []
-                        try:
+        if msearch_mget_bulk:
+            # Determine indices requested by JSON body
+
+            body_idxs = []
+
+            try:
+                if api == 'mget':
+                    body_json = json_unicode_to_str(assert_json_type(parse_json(body.strip()), dict))
+                    noidx = False
+
+                    for doc in (
+                        assert_json_type(doc, dict) for doc in assert_json_type(body_json.get('docs', []), list)
+                    ):
+                        if '_index' in doc:
+                            body_idxs.append(SimplePattern(assert_json_type(doc['_index'], str), literal=True))
+                        else:
+                            noidx = True
+
+                    if not req_idxs and (noidx or assert_json_type(body_json.get('ids', []), list)):
+                        raise InvalidAPICall('no index given for some documents to fetch')
+                else:
+                    sio = StringIO(body)
+                    try:
+                        body_json = (json_unicode_to_str(assert_json_type(parse_json(l), dict)) for l in (
+                            (l or '{}' for l in istrip((
+                                l for (l, b) in itertools.izip(sio, itertools.cycle((True, False))) if b
+                            ))) if api == 'msearch' else istrip(sio)
+                        ))
+
+                        if api == 'msearch':
+                            try:
+                                for j in body_json:
+                                    for idxs in (j[k] for k in ('index', 'indices') if k in j):
+                                        if isinstance(idxs, str):
+                                            idxs = idxs.split(',')
+                                        elif isinstance(idxs, list):
+                                            for idx in idxs:
+                                                if not isinstance(idx, str):
+                                                    raise InvalidAPICall('invalid index: {0} (must be a string)'.format(
+                                                        json.dumps(idx)
+                                                    ))
+                                        else:
+                                            raise InvalidAPICall(
+                                                'invalid indices: {0} (must be an array or a string)'.format(
+                                                    json.dumps(idxs)
+                                                )
+                                            )
+
+                                        idxs = frozenset(itertools.imap(
+                                            normalize_pattern, ifilter_bool(requested_indices(idxs))
+                                        ))
+                                        if not (idxs or req_idxs) or idxs & frozenset(('*', '_all')):
+                                            raise RequestedAsterisk()
+
+                                        body_idxs.extend(itertools.imap(SimplePattern, idxs))
+                            except RequestedAsterisk:
+                                body_idxs = (SimplePattern('*'),)
+                        else:  # api == 'bulk'
+                            actions = ('index', 'create', 'delete', 'update')
+                            actions_source = ('index', 'create')
+                            skip = False
+
                             for j in body_json:
-                                json_idxs = tuple((j[k] for k in ('index', 'indices') if k in j))
-                                if not json_idxs:
-                                    body_idxs.append(req_idxs)
+                                if skip:
+                                    skip = False
                                     continue
 
-                                line_idxs = frozenset()
-
-                                for idxs in json_idxs:
-                                    if isinstance(idxs, str):
-                                        idxs = idxs.split(',')
-                                    elif isinstance(idxs, list):
-                                        for idx in idxs:
-                                            if not isinstance(idx, str):
-                                                raise InvalidAPICall('invalid index: {0} (must be a string)'.format(
-                                                    json.dumps(idx)
-                                                ))
-                                    else:
-                                        raise InvalidAPICall(
-                                            'invalid indices: {0} (must be an array or a string)'.format(
-                                                json.dumps(idxs)
-                                            )
+                                l = len(j)
+                                if l != 1:
+                                    raise InvalidAPICall(
+                                        'invalid operation: {0} (must contain exactly one action -- {1} given)'.format(
+                                            json.dumps(j), l
                                         )
-
-                                    idxs = frozenset(itertools.imap(
-                                        normalize_pattern, ifilter_bool(requested_indices(idxs))
-                                    ))
-                                    if not idxs or idxs & frozenset(('*', '_all')):
-                                        raise RequestedAsterisk()
-
-                                    line_idxs |= idxs
-
-                                body_idxs.append(line_idxs)
-                        except RequestedAsterisk:
-                            body_idxs = frozenset('*')
-                        else:
-                            body_idxs = frozenset(itertools.chain.from_iterable(body_idxs))
-                    else:  # api == 'bulk'
-                        actions = ('index', 'create', 'delete', 'update')
-                        actions_source = ('index', 'create')
-                        body_idxs = set()
-                        skip = False
-
-                        for j in body_json:
-                            if skip:
-                                skip = False
-                                continue
-
-                            l = len(j)
-                            if l != 1:
-                                raise InvalidAPICall(
-                                    'invalid operation: {0} (must contain exactly one action -- {1} given)'.format(
-                                        json.dumps(j), l
                                     )
-                                )
 
-                            action, meta_data = j.items()[0]
-                            if action not in actions:
-                                raise InvalidAPICall('invalid action: {0} (must be one of the following: {1})'.format(
-                                    json.dumps(action), ', '.join(actions)
-                                ))
+                                action, meta_data = j.items()[0]
+                                if action not in actions:
+                                    raise InvalidAPICall(
+                                        'invalid action: {0} (must be one of the following: {1})'.format(
+                                            json.dumps(action), ', '.join(actions)
+                                        )
+                                    )
 
-                            if not ('_index' in meta_data or idx_given):
-                                raise InvalidAPICall('invalid operation: {0} (no index given)'.format(json.dumps(j)))
+                                if not ('_index' in meta_data or req_idxs):
+                                    raise InvalidAPICall(
+                                        'invalid operation: {0} (no index given)'.format(json.dumps(j))
+                                    )
 
-                            body_idxs.add(meta_data.get('_index', defidx))
+                                if '_index' in meta_data:
+                                    body_idxs.append(SimplePattern(meta_data['_index'], literal=True))
 
-                            if action in actions_source:
-                                skip = True
-                finally:
-                    sio.close()
-        except InvalidAPICall as e:
-            m = str(e)
-            start_response('422 Unprocessable Entity', [('Content-Type', 'text/plain')])
-            return 'Invalid Elasticsearch API call or not analyzable' + (m and ': ' + m),
-        except InvalidJSON as e:
-            start_response('400 Bad Request', [('Content-Type', 'text/plain')])
-            return 'Invalid JSON: ' + repr(str(e)),
+                                if action in actions_source:
+                                    skip = True
+                    finally:
+                        sio.close()
+            except InvalidAPICall as e:
+                m = str(e)
+                start_response('422 Unprocessable Entity', [('Content-Type', 'text/plain')])
+                return 'Invalid Elasticsearch API call or not analyzable' + (m and ': ' + m),
+            except InvalidJSON as e:
+                start_response('400 Bad Request', [('Content-Type', 'text/plain')])
+                return 'Invalid JSON: ' + repr(str(e)),
+
+            req_idxs = itertools.chain(req_idxs, body_idxs)
+
+        # Collect allowed indices
+
+        allow_idxs = tuple(SimplePattern.without_subsets(itertools.chain.from_iterable(
+            elkenv['restrictions']['users'].get(user, {}).itervalues()
+        )))
+
+        # Compare requested indices with allowed ones
+
+        if not all((any((
+            allow_idx.superset(req_idx) for allow_idx in allow_idxs
+        )) for req_idx in SimplePattern.without_subsets(req_idxs))):
+            start_response('403 Forbidden', [('Content-Type', 'text/plain')])
+            return 'You may not access all requested indices',
 
     # Forward request
 
