@@ -225,11 +225,11 @@ class ELKProxyDaemon(UnixDaemon):
         except ValueError:
             raise ELKProxyInternalError(ECFGSEM, 'ldap-port', port)
 
-        # Username, password and root DN
+        # Username, password and base DN
 
         return dict(itertools.chain(
             (('host', host), ('port', port), ('ssl', SSL)),
-            ((k, (str if k == 'pass' else str.strip)(cfg.pop(k, ''))) for k in ('user', 'pass', 'rootdn'))
+            ((k, (str if k == 'pass' else str.strip)(cfg.pop(k, ''))) for k in ('user', 'pass', 'basedn'))
         ))
 
     @staticmethod
