@@ -196,40 +196,15 @@ class ELKProxyDaemon(UnixDaemon):
 
     @staticmethod
     def _validate_cfg_ldap(cfg):
-        cfg = cfg.get('ldap', {}).copy()
-
-        # Host
-
-        host = cfg.pop('host', '').strip() or 'localhost'
-
-        try:
-            host = validate_hostname(host)
-        except SocketError:
-            raise ELKProxyInternalError(ECFGSEM, 'ldap-host', host)
-
-        # SSL
-
-        SSL = cfg.pop('ssl', '').strip() or 'off'
-
-        try:
-            SSL = {'off': False, 'on': True, 'starttls': 'starttls'}[SSL]
-        except KeyError:
-            raise ELKProxyInternalError(ECFGSEM, 'ldap-ssl', SSL)
-
-        # Port
-
-        port = cfg.pop('port', '').strip() or (636 if SSL is True else 389)
-
-        try:
-            port = validate_portnum(port)
-        except ValueError:
-            raise ELKProxyInternalError(ECFGSEM, 'ldap-port', port)
-
-        # Username, password and base DN
+        cfg = cfg.get('ldap', {})
 
         return dict(itertools.chain(
-            (('host', host), ('port', port), ('ssl', SSL)),
-            ((k, (str if k == 'pass' else str.strip)(cfg.pop(k, ''))) for k in ('user', 'pass', 'basedn'))
+            ((
+                'url', cfg.get('url', '').strip() or 'ldap://localhost'
+            ), (
+                'starttls', cfg.get('starttls', '').strip().lower() in ('yes', 'true')
+            )),
+            ((k, (str if k == 'pass' else str.strip)(cfg.get(k, ''))) for k in ('user', 'pass', 'basedn'))
         ))
 
     @staticmethod
