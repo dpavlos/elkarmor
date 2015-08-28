@@ -25,6 +25,7 @@ from errno import *
 from time import sleep
 from threading import Thread
 from wsgiref.simple_server import make_server
+from datetime import datetime, timedelta
 from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
 from .daemon import UnixDaemon, get_daemon_option_parser
 from .util import *
@@ -53,6 +54,31 @@ class ELKProxyInternalError(Exception):
     def __init__(self, errno, *args):
         self.errno = (errno,) + args
         super(ELKProxyInternalError, self).__init__()
+
+
+class LDAPGroupMemberships(object):
+    def __init__(self, url, starttls, user, passwd, basedn):
+        self._url = url
+        self._starttls = starttls
+        self._user = user
+        self._passwd = passwd
+        self._basedn = basedn
+
+        # {'user': (frozenset(['group'...]), expires)}
+        self._memberships = {}
+
+    def member_of(self, user):
+        memberships = self._memberships.get(user, False)
+        now = datetime.now()
+
+        if memberships and memberships[1] > now:
+            return memberships[0]
+
+        # TODO: connect to LDAP server and fetch the user's groups
+        memberships = frozenset()
+
+        self._memberships[user] = (memberships, now + timedelta(minutes=15))
+        return memberships
 
 
 class ELKProxyDaemon(UnixDaemon):
@@ -204,7 +230,7 @@ class ELKProxyDaemon(UnixDaemon):
             ), (
                 'starttls', cfg.get('starttls', '').strip().lower() in ('yes', 'true')
             )),
-            ((k, (str if k == 'pass' else str.strip)(cfg.get(k, ''))) for k in ('user', 'pass', 'basedn'))
+            ((k, (str if k == 'pass' else str.strip)(cfg.get(k, ''))) for k in ('user', 'passwd', 'basedn'))
         ))
 
     @staticmethod
@@ -327,6 +353,8 @@ class ELKProxyDaemon(UnixDaemon):
             if not sslargs[x]:
                 sslargs[x] = sslargs[y]
 
+        memberships = LDAPGroupMemberships(**self._cfg['ldap'])
+
         def server_wrapper(address_family, SSL):
             return lambda *args, **kwargs: (HTTPSServer if SSL else HTTPServer)(*args, **dict(itertools.chain(
                 kwargs.iteritems(),
@@ -334,7 +362,8 @@ class ELKProxyDaemon(UnixDaemon):
                 (('address_family', address_family), ('wsgi_env', {'elkproxy': {
                     'connector': http_connector,
                     'restrictions': restrictions,
-                    'unrestricted': unrestricted
+                    'unrestricted': unrestricted,
+                    'memberships': memberships
                 }}))
             )))
 
