@@ -95,6 +95,7 @@ def app(environ, start_response):
     # Get username
 
     user = None
+    ldap_groups = ()
     http_auth_header = req_headers.get('authorization')
     if http_auth_header is not None:
         m = http_basic_auth_header.match(http_auth_header)
@@ -112,6 +113,13 @@ def app(environ, start_response):
                        'Must contain a colon (to separate username and password)!'.format(repr(cred)),
 
             user = cred.split(':', 1)[0]
+
+            ldap_backend = elkenv['ldap_backend']
+            try:
+                ldap_groups = ldap_backend.member_of(user)
+            except KeyError:
+                start_response('401 Unauthorized', [('Content-Type', 'text/plain')])
+                return ()
 
     # Read request
 
@@ -264,7 +272,7 @@ def app(environ, start_response):
         allow_idxs = tuple(SimplePattern.without_subsets(itertools.chain.from_iterable((
             itertools.chain.from_iterable(perms.itervalues()) for perms in itertools.chain(
                 (elkenv['restrictions']['users'].get(user, {}),),
-                (groups.get(group, {}) for group in elkenv['ldap_backend'].member_of(user))
+                (groups.get(group, {}) for group in ldap_groups)
             )
         ))))
 

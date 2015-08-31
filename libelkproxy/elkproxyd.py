@@ -72,12 +72,16 @@ class LDAPBackend(object):
         now = datetime.now()
 
         if memberships and memberships[1] > now:
-            return memberships[0]
+            memberships = memberships[0]
+        else:
+            # TODO: connect to LDAP server and fetch the user's groups
+            memberships = frozenset()
 
-        # TODO: connect to LDAP server and fetch the user's groups
-        memberships = frozenset()
+            self._group_memberships[user] = (memberships, now + timedelta(minutes=15))
 
-        self._group_memberships[user] = (memberships, now + timedelta(minutes=15))
+        if memberships is None:
+            raise KeyError('no such user: ' + repr(user))
+
         return memberships
 
 
