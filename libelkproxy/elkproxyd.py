@@ -56,7 +56,7 @@ class ELKProxyInternalError(Exception):
         super(ELKProxyInternalError, self).__init__()
 
 
-class LDAPGroupMemberships(object):
+class LDAPBackend(object):
     def __init__(self, url, starttls, user, passwd, basedn):
         self._url = url
         self._starttls = starttls
@@ -65,10 +65,10 @@ class LDAPGroupMemberships(object):
         self._basedn = basedn
 
         # {'user': (frozenset(['group'...]), expires)}
-        self._memberships = {}
+        self._group_memberships = {}
 
     def member_of(self, user):
-        memberships = self._memberships.get(user, False)
+        memberships = self._group_memberships.get(user, False)
         now = datetime.now()
 
         if memberships and memberships[1] > now:
@@ -77,7 +77,7 @@ class LDAPGroupMemberships(object):
         # TODO: connect to LDAP server and fetch the user's groups
         memberships = frozenset()
 
-        self._memberships[user] = (memberships, now + timedelta(minutes=15))
+        self._group_memberships[user] = (memberships, now + timedelta(minutes=15))
         return memberships
 
 
@@ -353,7 +353,7 @@ class ELKProxyDaemon(UnixDaemon):
             if not sslargs[x]:
                 sslargs[x] = sslargs[y]
 
-        memberships = LDAPGroupMemberships(**self._cfg['ldap'])
+        ldap_backend = LDAPBackend(**self._cfg['ldap'])
 
         def server_wrapper(address_family, SSL):
             return lambda *args, **kwargs: (HTTPSServer if SSL else HTTPServer)(*args, **dict(itertools.chain(
@@ -363,7 +363,7 @@ class ELKProxyDaemon(UnixDaemon):
                     'connector': http_connector,
                     'restrictions': restrictions,
                     'unrestricted': unrestricted,
-                    'memberships': memberships
+                    'ldap_backend': ldap_backend
                 }}))
             )))
 
