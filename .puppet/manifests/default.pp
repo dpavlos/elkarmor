@@ -143,12 +143,18 @@ package { 'httpd': }
   enable => true,
 }
 
+file { 'httpd-htpasswds':
+  path => '/etc/httpd/htpasswds',
+  ensure => file,
+  source => '/vagrant/.puppet/files/httpd-htpasswds',
+}
+
 package { 'mod_ssl': }
 -> file { 'kibana-revproxy.conf':
   path => '/etc/httpd/conf.d/kibana-revproxy.conf',
   ensure => file,
   source => '/vagrant/.puppet/files/httpd-kibana-revproxy.conf',
-  require => Package['httpd'],
+  require => [ Package['httpd'], File['httpd-htpasswds'] ],
   notify => Service['httpd'],
 }
 
