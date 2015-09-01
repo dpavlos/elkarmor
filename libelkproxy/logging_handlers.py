@@ -18,10 +18,23 @@
 
 import logging
 import syslog
+from time import mktime
 from datetime import datetime
 
 
 __all__ = ['SysLogHandler', 'FileHandler']
+
+
+months = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+
+
+class LoggingFormatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        if datefmt is not None:
+            return logging.Formatter.formatTime(self, record, datefmt)
+
+        t = datetime.fromtimestamp(mktime(self.converter(record.created)))
+        return '{0} {1: >2d} {2:%H}:{2:%M}:{2:%S}'.format(months[t.month-1], t.day, t)
 
 
 syslog_lvl = {
@@ -33,10 +46,14 @@ syslog_lvl = {
 }
 
 
+syslog_formatter = LoggingFormatter('%(levelname)s: %(message)s')
+
+
 class SysLogHandler(logging.Handler):
     def __init__(self, ident):
         syslog.openlog(ident, syslog.LOG_PID)
         logging.Handler.__init__(self)
+        self.formatter = syslog_formatter
 
     def emit(self, record):
         msg = self.format(record)
@@ -48,20 +65,10 @@ class SysLogHandler(logging.Handler):
             syslog.syslog(prio, msg)
 
 
-class FileHandler(logging.Handler):
-    def __init__(self, name):
-        self._file = open(name, 'a', 1)
-        logging.Handler.__init__(self)
+file_formatter = LoggingFormatter('%(asctime)s %(levelname)s: %(message)s')
 
-    def emit(self, record):
-        print >>self._file, '[{0}] [{1}] {2}'.format(
-            str(datetime.fromtimestamp(record.created)), record.levelname, self.format(record)
-        )
 
-    def flush(self):
-        self._file.flush()
-        logging.Handler.flush(self)
-
-    def close(self):
-        self._file.close()
-        logging.Handler.close(self)
+class FileHandler(logging.FileHandler):
+    def __init__(self, filename):
+        logging.FileHandler.__init__(self, filename)
+        self.formatter = file_formatter
