@@ -135,11 +135,11 @@ class ELKProxyDaemon(UnixDaemon):
 
         logging_cfg = self._cfg['log']
 
-        log = logging.getLogger()
-        log.setLevel(log_lvl[logging_cfg['level']])
+        self._logger = logging.getLogger(__name__)
+        self._logger.setLevel(log_lvl[logging_cfg['level']])
 
         try:
-            log.addHandler(FileHandler(logging_cfg['path']) if (
+            self._logger.addHandler(FileHandler(logging_cfg['path']) if (
                 logging_cfg['type'] == 'file'
             ) else SysLogHandler(logging_cfg['prefix']))
         except IOError as e:
@@ -367,7 +367,8 @@ class ELKProxyDaemon(UnixDaemon):
                     'connector': http_connector,
                     'restrictions': restrictions,
                     'unrestricted': unrestricted,
-                    'ldap_backend': ldap_backend
+                    'ldap_backend': ldap_backend,
+                    'logger': self._logger
                 }}))
             )))
 
