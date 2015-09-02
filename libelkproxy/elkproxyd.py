@@ -139,7 +139,7 @@ class ELKProxyDaemon(UnixDaemon):
         self._logger.setLevel(log_lvl[logging_cfg['level']])
 
         try:
-            self._logger.addHandler(FileHandler(logging_cfg['path']) if (
+            self._logger.addHandler(FileHandler(logging_cfg['path'], logging_cfg['prefix']) if (
                 logging_cfg['type'] == 'file'
             ) else SysLogHandler(logging_cfg['prefix']))
         except IOError as e:
@@ -289,8 +289,8 @@ class ELKProxyDaemon(UnixDaemon):
             logging_cfg['path'] = fpath = cfg.pop('path', '')
             if not fpath:
                 raise ELKProxyInternalError(ECFGSEM, 'log-path')
-        else:
-            logging_cfg['prefix'] = cfg.pop('prefix', '').strip() or 'elkproxyd'
+
+        logging_cfg['prefix'] = cfg.pop('prefix', '').strip() or 'elkproxyd'
 
         return logging_cfg
 

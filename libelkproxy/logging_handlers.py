@@ -20,6 +20,7 @@ import logging
 import syslog
 from time import mktime
 from datetime import datetime
+from socket import gethostname
 
 
 __all__ = ['SysLogHandler', 'FileHandler']
@@ -65,10 +66,16 @@ class SysLogHandler(logging.Handler):
             syslog.syslog(prio, msg)
 
 
-file_formatter = LoggingFormatter('%(asctime)s %(levelname)s: %(message)s')
+file_formatter = LoggingFormatter('%(asctime)s %(hostname)s %(ident)s[%(process)d]: %(levelname)s: %(message)s')
 
 
 class FileHandler(logging.FileHandler):
-    def __init__(self, filename):
+    def __init__(self, filename, ident):
         logging.FileHandler.__init__(self, filename)
+        self._ident = ident
         self.formatter = file_formatter
+
+    def format(self, record):
+        record.hostname = gethostname()
+        record.ident = self._ident
+        return logging.FileHandler.format(self, record)
