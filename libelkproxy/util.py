@@ -387,20 +387,3 @@ class SimplePattern(tuple):
         for p1 in patterns:
             if not any((p2 != p1 and p2.superset(p1) for p2 in patterns)):
                 yield p1
-
-
-def json_unicode_to_str(j, encoding='utf_8'):
-    """
-    Return a copy of j with all unicode instances .encode()d with given encoding (recursively)
-
-    :param j: parsed JSON as returned by json.loads()
-    :type encoding: str
-    """
-
-    if isinstance(j, dict):
-        return dict(((json_unicode_to_str(y, encoding=encoding) for y in x) for x in j.iteritems()))
-
-    if isinstance(j, list):
-        return [json_unicode_to_str(x, encoding=encoding) for x in j]
-
-    return j.encode(encoding) if isinstance(j, unicode) else j

@@ -23,7 +23,8 @@ import sys
 import traceback
 from base64 import b64decode
 from cStringIO import StringIO
-from .util import ifilter_bool, istrip, json_unicode_to_str, normalize_pattern, SimplePattern
+from libelkproxy import util_json
+from .util import ifilter_bool, istrip, normalize_pattern, SimplePattern
 
 
 __all__ = ['app']
@@ -172,7 +173,7 @@ def app(environ, start_response):
 
                 try:
                     if api == 'mget':
-                        body_json = json_unicode_to_str(assert_json_type(parse_json(body.strip()), dict))
+                        body_json = util_json.unicode_to_str(assert_json_type(parse_json(body.strip()), dict))
                         noidx = False
 
                         for doc in (
@@ -188,7 +189,7 @@ def app(environ, start_response):
                     else:
                         sio = StringIO(body)
                         try:
-                            body_json = (json_unicode_to_str(assert_json_type(parse_json(l), dict)) for l in (
+                            body_json = (util_json.unicode_to_str(assert_json_type(parse_json(l), dict)) for l in (
                                 (l or '{}' for l in istrip((
                                     l for (l, b) in itertools.izip(sio, itertools.cycle((True, False))) if b
                                 ))) if api == 'msearch' else istrip(sio)
