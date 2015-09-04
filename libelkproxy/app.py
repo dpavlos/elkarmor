@@ -23,6 +23,7 @@ import sys
 import traceback
 from base64 import b64decode
 from cStringIO import StringIO
+from types import NoneType
 from libelkproxy import util_json
 from .util import ifilter_bool, istrip, normalize_pattern, SimplePattern
 
@@ -56,22 +57,44 @@ def requested_indices(iterable):
             yield idx[1:] if idx.startswith('+') else idx
 
 
-def parse_json(s):
+def parse_json(s, *assert_types):
     try:
-        return json.loads(s)
+        j = json.loads(s)
     except ValueError:
         raise InvalidJSON(s)
 
+    w = util_json.ScalarWrapper.wrap_recursive(util_json.unicode_to_str(j))
 
-json_types = (('object', dict), ('array', list), ('string', str))
+    if assert_types:
+        assert_json_type(w, w, *assert_types)
+
+    return w
 
 
-def assert_json_type(j, t):
-    for (s, json_type) in json_types:
-        if issubclass(t, json_type):
-            if not isinstance(j, json_type):
-                raise InvalidAPICall('not a JSON {0}: {1}'.format(s, json.dumps(j)))
-            return j
+json_ts = dict(((json_t, s) for (s, json_ts) in (
+    ('object', (dict,)),
+    ('array', (list,)),
+    ('string', (unicode, str)),
+    ('number (int)', (int, long)),
+    ('number (real)', (float,)),
+    ('boolean', (bool,)),
+    ('null', (NoneType,))
+) for json_t in json_ts))
+
+
+def assert_json_type(whole_wrapped, target_wrapped, json_type, *json_types):
+    json_types = (json_type,) + json_types
+    target = target_wrapped.get_wrapped()
+
+    if isinstance(target, json_types):
+        return target
+
+    raise InvalidAPICall('unexpected JSON {0}: {1}\nexpected one of: {2}\n\n{3}'.format(
+        json_ts[type(target)],
+        json.dumps(util_json.ScalarWrapper.unwrap_recursive(target_wrapped)),
+        ', '.join(frozenset((json_ts[json_t] for json_t in json_types))),
+        util_json.JSONHighlightPart(whole_wrapped).render_2d(target_wrapped)
+    ))
 
 
 http_basic_auth_header = re.compile(r'Basic\s+(\S*)(?!.)', re.I)
@@ -173,23 +196,33 @@ def app(environ, start_response):
 
                 try:
                     if api == 'mget':
-                        body_json = util_json.unicode_to_str(assert_json_type(parse_json(body.strip()), dict))
+                        body_json = parse_json(body.strip(), dict)
                         noidx = False
 
-                        for doc in (
-                            assert_json_type(doc, dict) for doc in assert_json_type(body_json.get('docs', []), list)
+                        for idx in (
+                            assert_json_type(body_json, doc, dict).get(
+                                util_json.ScalarWrapper('_index')
+                            ) for doc in assert_json_type(
+                                body_json,
+                                body_json.get_wrapped().get(
+                                    util_json.ScalarWrapper('docs'), util_json.ScalarWrapper([])
+                                ),
+                                list
+                            )
                         ):
-                            if '_index' in doc:
-                                body_idxs.append(SimplePattern(assert_json_type(doc['_index'], str), literal=True))
-                            else:
+                            if idx is None:
                                 noidx = True
+                            else:
+                                body_idxs.append(SimplePattern(assert_json_type(body_json, idx, str), literal=True))
 
-                        if not req_idxs and (noidx or assert_json_type(body_json.get('ids', []), list)):
+                        if not req_idxs and (noidx or assert_json_type(body_json, body_json.get_wrapped().get(
+                            util_json.ScalarWrapper('ids'), util_json.ScalarWrapper([])
+                        ), list)):
                             raise InvalidAPICall('no index given for some documents to fetch')
                     else:
                         sio = StringIO(body)
                         try:
-                            body_json = (util_json.unicode_to_str(assert_json_type(parse_json(l), dict)) for l in (
+                            body_json = (parse_json(l, dict) for l in (
                                 (l or '{}' for l in istrip((
                                     l for (l, b) in itertools.izip(sio, itertools.cycle((True, False))) if b
                                 ))) if api == 'msearch' else istrip(sio)
@@ -198,23 +231,15 @@ def app(environ, start_response):
                             if api == 'msearch':
                                 try:
                                     for j in body_json:
-                                        for idxs in (j[k] for k in ('index', 'indices') if k in j):
-                                            if isinstance(idxs, str):
-                                                idxs = idxs.split(',')
-                                            elif isinstance(idxs, list):
-                                                for idx in idxs:
-                                                    if not isinstance(idx, str):
-                                                        raise InvalidAPICall(
-                                                            'invalid index: {0} (must be a string)'.format(
-                                                                json.dumps(idx)
-                                                            )
-                                                        )
-                                            else:
-                                                raise InvalidAPICall(
-                                                    'invalid indices: {0} (must be an array or a string)'.format(
-                                                        json.dumps(idxs)
-                                                    )
-                                                )
+                                        u = j.get_wrapped()
+                                        for idxs in (
+                                            assert_json_type(j, u[k], str, unicode, list) for k in itertools.imap(
+                                                util_json.ScalarWrapper, ('index', 'indices')
+                                            ) if k in u
+                                        ):
+                                            idxs = tuple((
+                                                assert_json_type(j, idx, str, unicode) for idx in idxs
+                                            )) if isinstance(idxs, list) else idxs.split(',')
 
                                             idxs = frozenset(itertools.imap(
                                                 normalize_pattern, ifilter_bool(requested_indices(idxs))
@@ -235,14 +260,20 @@ def app(environ, start_response):
                                         skip = False
                                         continue
 
-                                    l = len(j)
+                                    u = j.get_wrapped()
+                                    l = len(u)
                                     if l != 1:
                                         raise InvalidAPICall(
                                             'invalid operation: {0}'
-                                            ' (must contain exactly one action -- {1} given)'.format(json.dumps(j), l)
+                                            ' (must contain exactly one action -- {1} given)'.format(
+                                                json.dumps(util_json.ScalarWrapper.unwrap_recursive(j)), l
+                                            )
                                         )
 
-                                    action, meta_data = j.items()[0]
+                                    action, meta_data = u.items()[0]
+                                    action = action.get_wrapped()
+                                    idx = assert_json_type(j, meta_data, dict).get(util_json.ScalarWrapper('_index'))
+
                                     if action not in actions:
                                         raise InvalidAPICall(
                                             'invalid action: {0} (must be one of the following: {1})'.format(
@@ -250,13 +281,17 @@ def app(environ, start_response):
                                             )
                                         )
 
-                                    if not ('_index' in meta_data or req_idxs):
-                                        raise InvalidAPICall(
-                                            'invalid operation: {0} (no index given)'.format(json.dumps(j))
-                                        )
-
-                                    if '_index' in meta_data:
-                                        body_idxs.append(SimplePattern(meta_data['_index'], literal=True))
+                                    if idx is None:
+                                        if not req_idxs:
+                                            raise InvalidAPICall(
+                                                'invalid operation: {0} (no index given)'.format(
+                                                    json.dumps(util_json.ScalarWrapper.unwrap_recursive(j))
+                                                )
+                                            )
+                                    else:
+                                        body_idxs.append(SimplePattern(
+                                            assert_json_type(j, idx, str, unicode), literal=True
+                                        ))
 
                                     if action in actions_source:
                                         skip = True
