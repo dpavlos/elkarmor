@@ -17,9 +17,10 @@
 
 
 import itertools
+import json
 
 
-__all__ = ['unicode_to_str', 'ScalarWrapper']
+__all__ = ['unicode_to_str', 'ScalarWrapper', 'JSONHighlightPart']
 
 
 def unicode_to_str(j, encoding='utf_8'):
@@ -112,3 +113,169 @@ class ScalarWrapper(object):
         )) if isinstance(unwrapped, dict) else map(
             cls.unwrap_recursive, unwrapped
         ) if isinstance(unwrapped, list) else unwrapped
+
+
+class JSONHighlightPart(object):
+    """
+    Shows an exact part of a JSON value (e.g. a semantic error)
+    """
+
+    def __init__(self, whole_json):
+        """
+        :param whole_json: the JSON value to show an exact part of
+        :type whole_json: ScalarWrapper
+        """
+
+        self._whole_json = whole_json
+
+    def render_2d(self, target):
+        """
+        :param target: the exact part of the JSON value to show
+        :type target: ScalarWrapper
+        :return: the JSON value rendered 2-dimensional with target ASCII-highlighted
+        :rtype: str
+        """
+
+        try:
+            self._render_2d(self._whole_json, target)
+        except self._RenderStop as e:
+            return str(e)
+
+    @classmethod
+    def _render_2d(cls, current_wrapped, target, result='', indent=0, curpos=0):
+        """
+        helper method for .render_2d() for recursive rendering
+
+        :type current_wrapped: ScalarWrapper
+        :type target: ScalarWrapper
+        :type result: str
+        :type indent: int
+        :type curpos: int
+        :rtype: str
+        :raise cls._RenderStop:
+        """
+
+        current = current_wrapped.get_wrapped()
+
+        if current_wrapped is target:
+            raise cls._RenderStop('{0}{1}\n{2}^'.format(
+                result,
+                (
+                    '{' if current else '{}'
+                ) if isinstance(current, dict) else (
+                    '[' if current else '[]'
+                ) if isinstance(current, list) else json.dumps(current),
+                '-' * curpos
+            ))
+
+        next_indent = indent + 4
+
+        if isinstance(current, dict):
+            if current:
+                first = True
+                for (k, v) in current.iteritems():
+                    result = cls._render_2d(k, target, '{0}{1}\n{2}'.format(
+                        result, '{' if first else ',', ' ' * next_indent
+                    ), next_indent, next_indent) + ': '
+
+                    result = cls._render_2d(v, target, result, next_indent, len(result.rsplit('\n', 1)[-1]))
+
+                    if first:
+                        first = False
+
+                result += '\n{0}}}'.format(' ' * indent)
+            else:
+                result += '{}'
+        elif isinstance(current, list):
+            if current:
+                first = True
+                for i in current:
+                    result = cls._render_2d(i, target, '{0}{1}\n{2}'.format(
+                        result, '[' if first else ',', ' ' * next_indent
+                    ), next_indent, next_indent)
+
+                    if first:
+                        first = False
+
+                result += '\n{0}]'.format(' ' * indent)
+            else:
+                result += '[]'
+        else:
+            result += json.dumps(current)
+
+        return result
+
+    def render_flat(self, target):
+        """
+        :param target: the exact part of the JSON value to show
+        :type target: ScalarWrapper
+        :return: the JSON value rendered 1-dimensional with target ASCII-highlighted
+        :rtype: str
+        """
+
+        try:
+            self._render_flat(self._whole_json, target)
+        except self._RenderStop as e:
+            return str(e)
+
+    @classmethod
+    def _render_flat(cls, current_wrapped, target, result=''):
+        """
+        helper method for .render_flat() for recursive rendering
+
+        :type current_wrapped: ScalarWrapper
+        :type target: ScalarWrapper
+        :type result: str
+        :rtype: str
+        :raise cls._RenderStop:
+        """
+
+        current = current_wrapped.get_wrapped()
+
+        if current_wrapped is target:
+            raise cls._RenderStop('{0}{1}  <----'.format(
+                result,
+                (
+                    '{' if current else '{}'
+                ) if isinstance(current, dict) else (
+                    '[' if current else '[]'
+                ) if isinstance(current, list) else json.dumps(current)
+            ))
+
+        if isinstance(current, dict):
+            if current:
+                result += '{'
+
+                first = True
+                for (k, v) in current.iteritems():
+                    result = cls._render_flat(v, target, cls._render_flat(
+                        k, target, result if first else result + ', '
+                    ) + ': ')
+
+                    if first:
+                        first = False
+
+                result += '}'
+            else:
+                result += '{}'
+        elif isinstance(current, list):
+            if current:
+                result += '['
+
+                first = True
+                for i in current:
+                    result = cls._render_flat(i, target, result if first else result + ', ')
+
+                    if first:
+                        first = False
+
+                result += ']'
+            else:
+                result += '[]'
+        else:
+            result += json.dumps(current)
+
+        return result
+
+    class _RenderStop(Exception):
+        pass
