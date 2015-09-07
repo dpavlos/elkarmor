@@ -329,9 +329,8 @@ class SimplePattern(tuple):
                 simple_subpattern_asterisk if c == '*' else SimpleSubPatternChar(c)
             ) for c in pattern)
         ))
-        self._representation = '{0}({1}{2})'.format(
-            cls.__name__, repr(pattern), ', literal=True' if literal else ''
-        )
+        self._pattern = pattern
+        self.literal = literal
         return self
 
     def __init__(self, pattern, literal=False):
@@ -374,7 +373,14 @@ class SimplePattern(tuple):
         :rtype: str
         """
 
-        return self._representation
+        return '{0}({1!r}{2})'.format(type(self).__name__, str(self), ', literal=True' if self.literal else '')
+
+    def __str__(self):
+        """
+        :rtype: str
+        """
+
+        return self._pattern
 
     @staticmethod
     def without_subsets(iterable):

@@ -47,6 +47,14 @@ class InvalidJSON(ELKProxyAppInternalException):
     pass
 
 
+class AssertJSONTypeFailure(ELKProxyAppInternalException):
+    def __init__(self, whole, target, json_types):
+        super(AssertJSONTypeFailure, self).__init__()
+        self.whole = whole
+        self.target = target
+        self.json_types = json_types
+
+
 def requested_indices(iterable):
     """
     Yield only indices which don't start with a `-', without a leading `+'
@@ -89,12 +97,7 @@ def assert_json_type(whole_wrapped, target_wrapped, json_type, *json_types):
     if isinstance(target, json_types):
         return target
 
-    raise InvalidAPICall('unexpected JSON {0}: {1}\nexpected one of: {2}\n\n{3}'.format(
-        json_ts[type(target)],
-        json.dumps(util_json.ScalarWrapper.unwrap_recursive(target_wrapped)),
-        ', '.join(frozenset((json_ts[json_t] for json_t in json_types))),
-        util_json.JSONHighlightPart(whole_wrapped).render_2d(target_wrapped)
-    ))
+    raise AssertJSONTypeFailure(whole_wrapped, target_wrapped, json_types)
 
 
 http_basic_auth_header = re.compile(r'Basic\s+(\S*)(?!.)', re.I)
@@ -108,11 +111,13 @@ def app(environ, start_response):
         # Deny absolute URLs
 
         path_info = environ.get('PATH_INFO', '') or '/'
-        if not path_info.startswith('/'):
-            start_response('403 Forbidden', [('Content-Type', 'text/plain')])
-            return "Invalid URL: {0}\nOnly relative ones (starting with `/') are allowed!".format(repr(path_info)),
-
         query_str = environ.get('QUERY_STRING', '')
+        url = path_info + (query_str and '?' + query_str)
+
+        if not path_info.startswith('/'):
+            logger.info("denying access to URL {0!r} as it doesn't start with a `/'".format(url))
+            start_response('403 Forbidden', [('Content-Type', 'text/plain')])
+            return "Invalid URL: {0!r}\nOnly relative ones (starting with `/') are allowed!".format(url),
 
         # Collect HTTP headers
 
@@ -129,16 +134,23 @@ def app(environ, start_response):
             m = http_basic_auth_header.match(http_auth_header)
             if m is not None:
                 b64cred = m.group(1)
-                try:
-                    cred = b64decode(b64cred)
-                except TypeError:
-                    start_response('400 Bad Request', [('Content-Type', 'text/plain')])
-                    return 'Invalid authentication credentials: {0}\nMust be Base64-encoded!'.format(repr(b64cred)),
 
-                if ':' not in cred:
+                try:
+                    try:
+                        cred = b64decode(b64cred)
+                    except TypeError:
+                        cred = b64cred
+                        raise ValueError('Must be Base64-encoded!')
+
+                    if ':' not in cred:
+                        raise ValueError('Must contain a colon (to separate username and password)!')
+                except ValueError as e:
+                    logger.info(
+                        'rejecting non-anonymous request because of'
+                        ' malformed authentication credentials: {0!r}'.format(b64cred)
+                    )
                     start_response('400 Bad Request', [('Content-Type', 'text/plain')])
-                    return 'Invalid authentication credentials: {0}\n'\
-                           'Must contain a colon (to separate username and password)!'.format(repr(cred)),
+                    return 'Invalid authentication credentials: {0!r}\n{1!s}'.format(cred, e),
 
                 user = cred.split(':', 1)[0]
 
@@ -146,6 +158,10 @@ def app(environ, start_response):
                 try:
                     ldap_groups = ldap_backend.member_of(user)
                 except KeyError:
+                    logger.info(
+                        "rejecting non-anonymous request because"
+                        " the user {0!r} isn't listed in the LDAP tree".format(user)
+                    )
                     start_response('401 Unauthorized', [('Content-Type', 'text/plain')])
                     return ()
 
@@ -157,6 +173,7 @@ def app(environ, start_response):
             if clen < 0:
                 raise ValueError()
         except ValueError:
+            logger.info('rejecting request because of malformed content-length: {0!r}'.format(clen))
             start_response('400 Bad Request', [('Content-Type', 'text/plain')])
             return 'Invalid Content-Length: ' + repr(clen),
 
@@ -299,11 +316,31 @@ def app(environ, start_response):
                             sio.close()
                 except InvalidAPICall as e:
                     m = str(e)
+                    logger.info(
+                        'rejecting request because of a semantically invalid Elasticsearch API call' + (m and ': ' + m)
+                    )
                     start_response('422 Unprocessable Entity', [('Content-Type', 'text/plain')])
-                    return 'Invalid Elasticsearch API call or not analyzable' + (m and ': ' + m),
+                    return 'Semantically invalid Elasticsearch API call' + (m and ': ' + m),
+                except AssertJSONTypeFailure as e:
+                    problem = 'unexpected JSON {0}, expected one of: {1}'.format(
+                        json_ts[type(e.target.get_wrapped())],
+                        ', '.join(frozenset((json_ts[json_t] for json_t in e.json_types)))
+                    )
+                    jhp = util_json.JSONHighlightPart(e.whole)
+
+                    logger.info(
+                        'rejecting request because of a semantically invalid (or not analyzable) '
+                        'Elasticsearch API call: {0} {1}'.format(jhp.render_flat(e.target), problem)
+                    )
+                    start_response('422 Unprocessable Entity', [('Content-Type', 'text/plain')])
+                    return 'Semantically invalid Elasticsearch API call or not analyzable:\n{0}\n\n{1}'.format(
+                        problem, jhp.render_2d(e.target)
+                    ),
                 except InvalidJSON as e:
+                    m = repr(str(e))
+                    logger.info('rejecting request because of malformed JSON: ' + m)
                     start_response('400 Bad Request', [('Content-Type', 'text/plain')])
-                    return 'Invalid JSON: ' + repr(str(e)),
+                    return 'Invalid JSON: ' + m,
 
                 req_idxs = itertools.chain(req_idxs, body_idxs)
 
@@ -319,11 +356,24 @@ def app(environ, start_response):
 
             # Compare requested indices with allowed ones
 
-            if not all((any((
+            deny_idxs = tuple((req_idx for req_idx in SimplePattern.without_subsets(req_idxs) if not any((
                 allow_idx.superset(req_idx) for allow_idx in allow_idxs
-            )) for req_idx in SimplePattern.without_subsets(req_idxs))):
+            ))))
+            if deny_idxs:
+                deny_idxs = tuple((
+                    '{0!r} ({1})'.format(str(idx), 'literal' if idx.literal else 'pattern') for idx in deny_idxs
+                ))
+
+                logger.info(
+                    'rejecting non-anonymous request because {0} access the following requested indices: {1}'.format(
+                        'neither the user {0!r} nor their LDAP groups ({1}) may'.format(
+                            user, ', '.join(itertools.imap(repr, ldap_groups))
+                        ) if ldap_groups else 'the user {0!r} may not'.format(user),
+                        ', '.join(deny_idxs)
+                    )
+                )
                 start_response('403 Forbidden', [('Content-Type', 'text/plain')])
-                return 'You may not access all requested indices',
+                return 'You may not access the following requested indices:\n ' + '\n '.join(deny_idxs),
 
         # Forward request
 
@@ -331,7 +381,7 @@ def app(environ, start_response):
 
         conn.request(
             environ['REQUEST_METHOD'],
-            path_info + (query_str and '?' + query_str),
+            url,
             body,
             req_headers
         )
