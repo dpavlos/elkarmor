@@ -21,6 +21,7 @@ import os
 import re
 import itertools
 import logging
+import ldap
 from errno import *
 from time import sleep
 from threading import Thread
@@ -74,8 +75,19 @@ class LDAPBackend(object):
         if memberships and memberships[1] > now:
             memberships = memberships[0]
         else:
-            # TODO: connect to LDAP server and fetch the user's groups
-            memberships = frozenset()
+            conn = ldap.initialize(self._url)
+            if self._starttls:
+                try:
+                    conn.start_tls_s()
+                except ldap.LDAPError:
+                    pass
+
+            conn.simple_bind_s(self._user, self._passwd)
+            try:
+                # TODO: connect to LDAP server and fetch the user's groups
+                memberships = frozenset() if 'user exists' else None
+            finally:
+                conn.unbind_s()
 
             self._group_memberships[user] = (memberships, now + timedelta(minutes=15))
 

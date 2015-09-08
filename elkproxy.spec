@@ -16,7 +16,7 @@ License: GPLv2+
 Group: System Environment/Daemons
 BuildRequires: python-setuptools
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-buildroot
-Requires: python-netifaces
+Requires: python-netifaces, python-ldap
 BuildArch: noarch
 Vendor: NETWAYS GmbH <info@netways.de>
 Url: https://project.netways.de/projects/elk-proxy
