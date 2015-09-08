@@ -349,7 +349,7 @@ def app(environ, start_response):
             groups = elkenv['restrictions']['group']
             allow_idxs = tuple(SimplePattern.without_subsets(itertools.chain.from_iterable((
                 itertools.chain.from_iterable(perms.itervalues()) for perms in itertools.chain(
-                    (elkenv['restrictions']['users'].get(user, {}),),
+                    (elkenv['restrictions']['users'].get(user, {}), elkenv['unrestricted_idxs']),
                     (groups.get(group, {}) for group in ldap_groups)
                 )
             ))))

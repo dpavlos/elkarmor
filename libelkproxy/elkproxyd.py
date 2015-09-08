@@ -319,28 +319,40 @@ class ELKProxyDaemon(UnixDaemon):
 
         raw_restrictions = []
         unrestricted = {'users': set(), 'group': set()}
+        unrestricted_idxs = {}
 
         for (name, restriction) in self._restrictions.iteritems():
-            restricted = ((
-                opt, ifilter_bool(istrip(parse_split(restriction.pop(opt, ''), sep)))
-            ) for (opt, sep) in (('users', ','), ('group', '|')))
+            restricted = dict(((
+                opt, frozenset(ifilter_bool(istrip(parse_split(restriction.pop(opt, ''), sep))))
+            ) for (opt, sep) in (('users', ','), ('group', '|'))))
 
-            if restriction.pop('passthrough', '').strip().lower() == 'true':
-                for (opt, vals) in restricted:
+            unrestricted_idx = '*' in restricted['users']
+            if unrestricted_idx:
+                restricted['users'] -= frozenset('*')
+
+            passthrough = restriction.pop('passthrough', '').strip().lower() == 'true'
+            if passthrough:
+                for (opt, vals) in restricted.iteritems():
                     for v in vals:
                         unrestricted[opt].add(v)
-                continue
 
-            restricted = dict(((opt, frozenset(vals)) for (opt, vals) in restricted))
-
-            raw_restrictions.append((
-                restricted,
-                frozenset(itertools.chain.from_iterable((
-                    itertools.product(*itertools.imap((
-                        lambda x: frozenset(ifilter_bool(parse_split(x, ',')))
-                    ), permission)) for permission in restriction.iteritems()
-                )))
+            permissions = itertools.chain.from_iterable((
+                itertools.product(*(
+                    frozenset(ifilter_bool(parse_split(p, ','))) for p in permission
+                )) for permission in restriction.iteritems()
             ))
+
+            if unrestricted_idx:
+                for (permission, idx) in permissions:
+                    if permission not in unrestricted_idxs:
+                        unrestricted_idxs[permission] = set()
+                    unrestricted_idxs[permission].add(idx)
+            elif not passthrough:
+                raw_restrictions.append((restricted, frozenset(permissions)))
+
+        unrestricted_idxs = dict(((permission, tuple(
+            SimplePattern.without_subsets(itertools.imap(SimplePattern, idxs))
+        )) for (permission, idxs) in unrestricted_idxs.iteritems()))
 
         restrictions = {'users': {}, 'group': {}}
 
@@ -361,7 +373,19 @@ class ELKProxyDaemon(UnixDaemon):
         for (opt, vals) in restrictions.iteritems():
             for (v, permissions) in vals.iteritems():
                 for (permission, idxs) in permissions.iteritems():
-                    restrictions[opt][v][permission] = tuple(SimplePattern.without_subsets(idxs))
+                    idxs = tuple((
+                        idx1 for idx1 in SimplePattern.without_subsets(idxs) if not any((
+                            idx2.superset(idx1) for idx2 in unrestricted_idxs.get(permission, ())
+                        ))
+                    ))
+
+                    if idxs:
+                        restrictions[opt][v][permission] = idxs
+                    else:
+                        del restrictions[opt][v][permission]
+
+                if not restrictions[opt][v]:
+                    del restrictions[opt][v]
 
         sslargs = self._cfg['netio']['sslargs']
 
@@ -379,6 +403,7 @@ class ELKProxyDaemon(UnixDaemon):
                     'connector': http_connector,
                     'restrictions': restrictions,
                     'unrestricted': unrestricted,
+                    'unrestricted_idxs': unrestricted_idxs,
                     'ldap_backend': ldap_backend,
                     'logger': self._logger
                 }}))
