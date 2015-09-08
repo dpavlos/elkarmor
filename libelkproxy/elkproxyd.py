@@ -246,7 +246,7 @@ class ELKProxyDaemon(UnixDaemon):
             ), (
                 'starttls', cfg.get('starttls', '').strip().lower() in ('yes', 'true')
             )),
-            ((k, (str if k == 'pass' else str.strip)(cfg.get(k, ''))) for k in ('user', 'passwd', 'basedn'))
+            ((k, (str if k == 'passwd' else str.strip)(cfg.get(k, ''))) for k in ('user', 'passwd', 'basedn'))
         ))
 
     @staticmethod
