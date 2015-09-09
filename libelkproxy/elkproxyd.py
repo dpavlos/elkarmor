@@ -92,6 +92,19 @@ class LDAPBackend(object):
             self.connection.unbind()
             self._bound = False
 
+    def fetch_user_dn(self, username):
+        result = self.connection.search_s(
+            self._user_base_dn, ldap.SCOPE_SUBTREE,
+            '(&(objectClass=user)(sAMAccountName={0}))'.format(username), [])
+        if len(result) == 0:
+            raise ldap.NO_RESULTS_RETURNED(
+                {'desc': 'No DN found for user {0}'.format(username)})
+        elif len(result) > 1:
+            raise ldap.LDAPError(
+                {'desc': 'Multiple DNs found for user {0}'.format(username)})
+
+        return result[0][0]
+
     def get_group_memberships(self, username):
         memberships = self._group_memberships.get(user, False)
         now = datetime.now()
