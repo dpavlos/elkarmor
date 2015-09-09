@@ -240,14 +240,20 @@ class ELKProxyDaemon(UnixDaemon):
     def _validate_cfg_ldap(cfg):
         cfg = cfg.get('ldap', {})
 
-        return dict(itertools.chain(
-            ((
-                'url', cfg.get('url', '').strip() or 'ldap://localhost'
-            ), (
-                'starttls', cfg.get('starttls', '').strip().lower() in ('yes', 'true')
-            )),
-            ((k, (str if k == 'passwd' else str.strip)(cfg.get(k, ''))) for k in ('user', 'passwd', 'basedn'))
-        ))
+        config = {}
+        config['url'] = cfg.get('url', 'ldap://localhost')
+        config['bind_dn'] = cfg.get('bind_dn')
+        config['bind_pw'] = cfg.get('bind_pw')
+
+        try:
+            config['base_dn'] = cfg['base_dn']
+        except KeyError:
+            raise ELKProxyInternalError(
+                ECFGSEM,
+                'LDAP config option "base_dn" is required'
+            )
+
+        return config
 
     @staticmethod
     def _validate_cfg_elasticsearch(cfg):
