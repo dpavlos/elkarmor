@@ -58,41 +58,90 @@ class ELKProxyInternalError(Exception):
 
 
 class LDAPBackend(object):
-    def __init__(self, url, starttls, user, passwd, basedn):
+    def __init__(
+            self, url, group_base_dn, user_base_dn,
+            bind_dn = None, bind_pw = None):
         self._url = url
-        self._starttls = starttls
-        self._user = user
-        self._passwd = passwd
-        self._basedn = basedn
+        self._group_base_dn = group_base_dn
+        self._user_base_dn = user_base_dn
+        self._bind_dn = bind_dn
+        self._bind_pw = bind_pw
 
-        # {'user': (frozenset(['group'...]), expires)}
-        self._group_memberships = {}
+        self._bound = False
+        self._connection = None
+        self._membership_cache = {}
 
-    def member_of(self, user):
-        memberships = self._group_memberships.get(user, False)
+    @property
+    def connection(self):
+        if self._connection is None:
+            self._connection = ldap.initialize(self._url)
+
+        return self._connection
+
+    def bind(self):
+        if (not self._bound
+            and self._bind_dn is not None
+            and self._bind_pw is not None):
+
+            self.connection.simple_bind_s(self._bind_dn, self._bind_pw)
+            self._bound = True
+
+    def unbind(self):
+        if self._bound:
+            self.connection.unbind()
+            self._bound = False
+
+    def search(self, base_dn, search_filter, attributes = None):
+        if len(search_filter) > 1:
+            search_string = '(&('
+            search_string += ')('.join(
+                '{0}={1}'.format(k, v) for k, v in search_filter.iteritems())
+            search_string += '))'
+        elif len(search_filter) > 0:
+            search_string = '({0}={1})'.format(
+                search_filter.keys()[0], search_filter.values()[0])
+        else:
+            search_string = '(objectClass=*)'
+
+        attrsonly = 0
+        if attributes is not None and not attributes:
+            # This is actually quite dirty as I was not able to find a way to
+            # select "nothing". This will now only omit the values of all
+            # attributes but the attribute names itself are still transmitted
+            attrsonly = 1
+
+        return self.connection.search_s(
+            base_dn, ldap.SCOPE_SUBTREE, search_string, attributes, attrsonly)
+
+    def fetch_user_dn(self, username):
+        result = self.search(
+            self._user_base_dn,
+            {'objectClass': 'user', 'sAMAccountName': username}, [])
+        if len(result) == 0:
+            raise ldap.NO_RESULTS_RETURNED(
+                {'desc': 'No DN found for user {0}'.format(username)})
+        elif len(result) > 1:
+            raise ldap.LDAPError(
+                {'desc': 'Multiple DNs found for user {0}'.format(username)})
+
+        return result[0][0]
+
+    def get_group_memberships(self, username):
+        membership_cache = self._membership_cache.get(username)
         now = datetime.now()
 
-        if memberships and memberships[1] > now:
-            memberships = memberships[0]
+        if membership_cache is not None and membership_cache['expires'] > now:
+            memberships = membership_cache['memberships']
         else:
-            conn = ldap.initialize(self._url)
-            if self._starttls:
-                try:
-                    conn.start_tls_s()
-                except ldap.LDAPError:
-                    pass
-
-            conn.simple_bind_s(self._user, self._passwd)
-            try:
-                # TODO: connect to LDAP server and fetch the user's groups
-                memberships = frozenset() if 'user exists' else None
-            finally:
-                conn.unbind_s()
-
-            self._group_memberships[user] = (memberships, now + timedelta(minutes=15))
-
-        if memberships is None:
-            raise KeyError('no such user: ' + repr(user))
+            user_dn = self.fetch_user_dn(username)
+            group_filter = {'objectClass': 'group',
+                'member:1.2.840.113556.1.4.1941:': user_dn}
+            result = self.search(self._group_base_dn, group_filter, [])
+            memberships = frozenset(t[0] for t in result)
+            self._membership_cache[username] = {
+                'memberships': memberships,
+                'expires': now + timedelta(minutes=15)
+            }
 
         return memberships
 
@@ -240,14 +289,28 @@ class ELKProxyDaemon(UnixDaemon):
     def _validate_cfg_ldap(cfg):
         cfg = cfg.get('ldap', {})
 
-        return dict(itertools.chain(
-            ((
-                'url', cfg.get('url', '').strip() or 'ldap://localhost'
-            ), (
-                'starttls', cfg.get('starttls', '').strip().lower() in ('yes', 'true')
-            )),
-            ((k, (str if k == 'passwd' else str.strip)(cfg.get(k, ''))) for k in ('user', 'passwd', 'basedn'))
-        ))
+        config = {}
+        config['url'] = cfg.get('url', 'ldap://localhost')
+        config['bind_dn'] = cfg.get('bind_dn')
+        config['bind_pw'] = cfg.get('bind_pw')
+
+        try:
+            config['group_base_dn'] = cfg['group_base_dn']
+        except KeyError:
+            raise ELKProxyInternalError(
+                ECFGSEM,
+                'LDAP config option "group_base_dn" is required'
+            )
+
+        try:
+            config['user_base_dn'] = cfg['user_base_dn']
+        except KeyError:
+            raise ELKProxyInternalError(
+                ECFGSEM,
+                'LDAP config option "user_base_dn" is required'
+            )
+
+        return config
 
     @staticmethod
     def _validate_cfg_elasticsearch(cfg):
@@ -451,6 +514,7 @@ class ELKProxyDaemon(UnixDaemon):
                 sslargs[x] = sslargs[y]
 
         ldap_backend = LDAPBackend(**self._cfg['ldap'])
+        ldap_backend.bind()
 
         elkenv = dict(itertools.chain(self._elkenv, (
             ('connector', http_connector),
