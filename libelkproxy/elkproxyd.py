@@ -37,11 +37,6 @@ from .app import *
 
 DEVNULL = open(os.devnull, 'r+b')
 
-ECFGDIR = 1
-ECFGIO = 2
-ECFGSYN = 3
-ECFGSEM = 4
-
 log_lvl = {
     'crit':     logging.CRITICAL,
     'err':      logging.ERROR,
@@ -51,10 +46,32 @@ log_lvl = {
 }
 
 
-class ELKProxyInternalError(Exception):
-    def __init__(self, errno, *args):
-        self.errno = (errno,) + args
-        super(ELKProxyInternalError, self).__init__()
+class ELKProxyConfigError(Exception):
+    pass
+
+
+class ELKProxyConfigNetIOError(ELKProxyConfigError):
+    pass
+
+
+class ELKProxyConfigLDAPError(ELKProxyConfigError):
+    pass
+
+
+class ELKProxyConfigElasticsearchError(ELKProxyConfigError):
+    pass
+
+
+class ELKProxyConfigLogError(ELKProxyConfigError):
+    pass
+
+
+class ELKProxyConfigRestrictionsError(ELKProxyConfigError):
+    pass
+
+
+class ELKProxyNoListen(Exception):
+    pass
 
 
 class LDAPBackend(object):
@@ -159,28 +176,29 @@ class ELKProxyDaemon(UnixDaemon):
     def before_daemonize(self):
         # Check whether the config directory is present and accessible
 
-        if not os.access(self._cfgdir, os.R_OK | os.X_OK):
-            raise ELKProxyInternalError(ECFGDIR)
+        cfgdir = os.path.abspath(self._cfgdir)
+        if not os.access(cfgdir, os.R_OK | os.X_OK):
+            raise ELKProxyConfigError("the config directory {0!r} doesn't exist or isn't readable".format(cfgdir))
 
         # Check whether all required config files are present and (syntactically) valid
 
         cfg = {}
         for cfn in ('config', 'restrictions'):
-            cfp = os.path.join(self._cfgdir, '{0}.ini'.format(cfn))
+            cfp = os.path.join(cfgdir, '{0}.ini'.format(cfn))
             try:
                 cf = open(cfp, 'r')
             except IOError as e:
                 if cfn == 'restrictions' and e.errno == ENOENT:
                     cfg[cfn] = {}
                     continue
-                raise ELKProxyInternalError(ECFGIO, e.errno, cfp)
+                raise ELKProxyConfigError("the config file {0!r} doesn't exist or isn't readable: {1!s}".format(cfp, e))
 
             cfgParser = ConfigParser()
             with cf as cf:
                 try:
                     cfgParser.readfp(cf)
                 except ConfigParserError as e:
-                    raise ELKProxyInternalError(ECFGSYN, e, cfp)
+                    raise ELKProxyConfigError("the config file {0!r} is syntactically invalid: {1!s}".format(cfp, e))
 
             cfg[cfn] = dict(((section, dict(cfgParser.items(section, True))) for section in cfgParser.sections()))
 
@@ -204,7 +222,7 @@ class ELKProxyDaemon(UnixDaemon):
                 logging_cfg['type'] == 'file'
             ) else SysLogHandler(logging_cfg['prefix']))
         except IOError as e:
-            raise ELKProxyInternalError(ECFGSEM, 'log-io', logging_cfg['path'], e.errno)
+            raise ELKProxyConfigLogError("the log file {0!r} isn't writable: {1!s}".format(logging_cfg['path'], e))
 
         daemon_logger = logging.getLogger('libelkproxy.daemon')
         for handler in daemon_logger.handlers:
@@ -220,65 +238,83 @@ class ELKProxyDaemon(UnixDaemon):
 
         # Validate addresses and interfaces
 
-        if not cfg:
-            raise ELKProxyInternalError(ECFGSEM, 'net-listen')
+        try:
+            if not cfg:
+                raise ELKProxyNoListen()
 
-        rAddr = re.compile(r'(.+):(\d+)(?!.)')
-        rAddr6 = re.compile(r'\[(.+)\](?!.)')
-        resolve = getifaddrs()
+            rAddr = re.compile(r'(.+):(\d+)(?!.)')
+            rAddr6 = re.compile(r'\[(.+)\](?!.)')
+            resolve = getifaddrs()
 
-        listen = {}
-        for (afs, af) in (('', AF_INET), ('6', AF_INET6)):
-            listen[af] = {}
-            for SSL in ('', '-ssl'):
-                for addr in ifilter_bool(istrip(parse_split(cfg.pop('inet{0}{1}'.format(afs, SSL), ''), ','))):
-                    m = rAddr.match(addr)
-                    if not m:
-                        raise ELKProxyInternalError(ECFGSEM, 'net-fmt', addr)
+            listen = {}
+            for (afs, af, afn) in (('', AF_INET, 4), ('6', AF_INET6, 6)):
+                listen[af] = {}
+                for SSL in ('', '-ssl'):
+                    for addr in ifilter_bool(istrip(parse_split(cfg.pop('inet{0}{1}'.format(afs, SSL), ''), ','))):
+                        m = rAddr.match(addr)
+                        if not m:
+                            raise ELKProxyConfigNetIOError(
+                                'invalid address to listen on: {0!r} (must be ip:port)'.format(addr)
+                            )
 
-                    ip, port = m.groups()
-                    try:
-                        port = validate_portnum(port)
-                    except ValueError:
-                        raise ELKProxyInternalError(ECFGSEM, 'net-port', port, addr)
-
-                    allowIP = allowIFace = True
-                    if af == AF_INET6:
-                        m = rAddr6.match(ip)
-                        if m:
-                            ip = m.group(1)
-                            allowIFace = False
-                        else:
-                            allowIP = False
-
-                    if allowIFace and ip in resolve:
-                        if af not in resolve[ip]:
-                            raise ELKProxyInternalError(ECFGSEM, 'net-af', af, ip)
-
-                        ip = resolve[ip][af]
-                    elif allowIP:
+                        ip, port = m.groups()
                         try:
-                            ip = normalize_ip(af, ip)
+                            port = validate_portnum(port)
                         except ValueError:
-                            raise ELKProxyInternalError(ECFGSEM, 'net-ip', af, ip)
-                    else:
-                        raise ELKProxyInternalError(ECFGSEM, 'net-iface', ip)
+                            raise ELKProxyConfigNetIOError(
+                                'invalid port number to listen on (in address {1!r}): {0!r}'
+                                ' (must be a decimal number between 0 and 65535)'.format(port, addr)
+                            )
 
-                    nAddr = (ip, port)
-                    if nAddr in listen[af]:
-                        raise ELKProxyInternalError(ECFGSEM, 'net-alrdy', addr)
+                        allowIP = allowIFace = True
+                        if af == AF_INET6:
+                            m = rAddr6.match(ip)
+                            if m:
+                                ip = m.group(1)
+                                allowIFace = False
+                            else:
+                                allowIP = False
 
-                    listen[af][nAddr] = bool(SSL)
-            if not listen[af]:
-                del listen[af]
+                        if allowIFace and ip in resolve:
+                            if af not in resolve[ip]:
+                                raise ELKProxyConfigNetIOError(
+                                    'IPv{0} is not available on interface {1}'.format(afn, ip)
+                                )
 
-        if not listen:
-            raise ELKProxyInternalError(ECFGSEM, 'net-listen')
+                            ip = resolve[ip][af]
+                        elif allowIP:
+                            try:
+                                ip = normalize_ip(af, ip)
+                            except ValueError:
+                                raise ELKProxyConfigNetIOError("{0!r} isn't a valid IPv{1} address".format(ip, afn))
+                        else:
+                            raise ELKProxyConfigNetIOError(
+                                "{0!r} is neither a valid IPv{1} address"
+                                " nor an existing interface's name".format(ip, afn)
+                            )
+
+                        nAddr = (ip, port)
+                        if nAddr in listen[af]:
+                            raise ELKProxyConfigNetIOError(
+                                '{0}:{1} is configured to listen on more than once'.format(ip, port)
+                            )
+
+                        listen[af][nAddr] = bool(SSL)
+                if not listen[af]:
+                    del listen[af]
+
+            if not listen:
+                raise ELKProxyNoListen()
+        except ELKProxyNoListen:
+            raise ELKProxyConfigNetIOError('no IP addresses are configured to listen on')
 
         if any((
             SSL for af in listen.itervalues() for SSL in af.itervalues()
         )) and not any(netio['sslargs'].itervalues()):
-            raise ELKProxyInternalError(ECFGSEM, 'net-ssl')
+            raise ELKProxyConfigNetIOError(
+                'some IP addresses are configured to listen on with SSL,'
+                ' but the required options for using SSL are missing'
+            )
 
         netio['listen'] = listen
 
@@ -297,18 +333,12 @@ class ELKProxyDaemon(UnixDaemon):
         try:
             config['group_base_dn'] = cfg['group_base_dn']
         except KeyError:
-            raise ELKProxyInternalError(
-                ECFGSEM,
-                'LDAP config option "group_base_dn" is required'
-            )
+            raise ELKProxyConfigLDAPError('config option "group_base_dn" is required')
 
         try:
             config['user_base_dn'] = cfg['user_base_dn']
         except KeyError:
-            raise ELKProxyInternalError(
-                ECFGSEM,
-                'LDAP config option "user_base_dn" is required'
-            )
+            raise ELKProxyConfigLDAPError('config option "user_base_dn" is required')
 
         return config
 
@@ -323,7 +353,7 @@ class ELKProxyDaemon(UnixDaemon):
         try:
             elsrch = {'host': validate_hostname(host)[1]}
         except SocketError:
-            raise ELKProxyInternalError(ECFGSEM, 'elsrch-host', host)
+            raise ELKProxyConfigElasticsearchError('invalid hostname: {0!r}'.format(host))
 
         # Protocol
 
@@ -332,7 +362,9 @@ class ELKProxyDaemon(UnixDaemon):
         try:
             elsrch['https'] = {'http': False, 'https': True}[protocol]
         except KeyError:
-            raise ELKProxyInternalError(ECFGSEM, 'elsrch-proto', protocol)
+            raise ELKProxyConfigElasticsearchError(
+                'invalid protocol: {0!r} (must be one of the following: http, https)'.format(protocol)
+            )
 
         # Port
 
@@ -341,7 +373,9 @@ class ELKProxyDaemon(UnixDaemon):
         try:
             elsrch['port'] = validate_portnum(port)
         except ValueError:
-            raise ELKProxyInternalError(ECFGSEM, 'elsrch-port', port)
+            raise ELKProxyConfigElasticsearchError(
+                'invalid port number: {0!r} (must be a decimal number between 0 and 65535)'.format(port)
+            )
 
         # Base URL
 
@@ -358,12 +392,14 @@ class ELKProxyDaemon(UnixDaemon):
         for (k, opts) in (('type', ('file', 'syslog')), ('level', tuple(log_lvl))):
             logging_cfg[k] = v = cfg.pop(k, '').strip()
             if v not in opts:
-                raise ELKProxyInternalError(ECFGSEM, 'log-opt', k, v, opts)
+                raise ELKProxyConfigLogError(
+                    'invalid logging {0}: {1!r} (must be one of the following: {2})'.format(k, v, ', '.join(opts))
+                )
 
         if logging_cfg['type'] == 'file':
             logging_cfg['path'] = fpath = cfg.pop('path', '')
             if not fpath:
-                raise ELKProxyInternalError(ECFGSEM, 'log-path')
+                raise ELKProxyConfigLogError("the logging type is 'file', but no file is configured to log into")
 
         logging_cfg['prefix'] = cfg.pop('prefix', '').strip() or 'elkproxyd'
 
@@ -477,7 +513,9 @@ class ELKProxyDaemon(UnixDaemon):
                                 else:
                                     permitted_urls[opt][v] = compiled_urls
         except re.error as e:
-            raise ELKProxyInternalError(ECFGSEM, 'url-rgx', bad_url, e)
+            raise ELKProxyConfigRestrictionsError(
+                'invalid regular expression for matching a URL ({0!r}): {1!s}'.format(bad_url, e)
+            )
 
         for (opt, vals) in restrictions.iteritems():
             for (v, permissions) in vals.iteritems():
@@ -558,11 +596,19 @@ def main():
             ELKProxyDaemon(**dict(itertools.ifilter((lambda x: x[1] is not None), vars(opts).iteritems()))),
             args[0]
         )()
-    except ELKProxyInternalError as e:
-        errno = e.errno[0]
+    except ELKProxyConfigError as e:
+        try:
+            area = {
+                ELKProxyConfigNetIOError: 'network I/O',
+                ELKProxyConfigLDAPError: 'LDAP',
+                ELKProxyConfigElasticsearchError: 'Elasticsearch',
+                ELKProxyConfigLogError: 'logging',
+                ELKProxyConfigRestrictionsError: 'restrictions'
+            }[type(e)]
+        except KeyError:
+            return 'Could not evaluate configuration: {0!s}'.format(e)
 
-        # TODO: handle errors
-        raise
+        return 'Invalid {0} configuration: {1!s}'.format(area, e)
 
 
 if __name__ == '__main__':
