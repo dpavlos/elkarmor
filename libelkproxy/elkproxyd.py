@@ -321,6 +321,9 @@ class ELKProxyDaemon(UnixDaemon):
         unrestricted = {'users': set(), 'group': set()}
         unrestricted_idxs = {}
 
+        raw_unrestricted_urls = set()
+        raw_permitted_urls = []
+
         for (name, restriction) in self._restrictions.iteritems():
             restricted = dict(((
                 opt, frozenset(ifilter_bool(istrip(parse_split(restriction.pop(opt, ''), sep))))
@@ -336,6 +339,10 @@ class ELKProxyDaemon(UnixDaemon):
                     for v in vals:
                         unrestricted[opt].add(v)
 
+            urls = frozenset(ifilter_bool((
+                restriction.pop(k).strip() for k in frozenset(restriction) if k.startswith('url_')
+            )))
+
             permissions = itertools.chain.from_iterable((
                 itertools.product(*(
                     frozenset(ifilter_bool(parse_split(p, ','))) for p in permission
@@ -347,8 +354,11 @@ class ELKProxyDaemon(UnixDaemon):
                     if permission not in unrestricted_idxs:
                         unrestricted_idxs[permission] = set()
                     unrestricted_idxs[permission].add(idx)
+
+                raw_unrestricted_urls.update(urls)
             elif not passthrough:
                 raw_restrictions.append((restricted, frozenset(permissions)))
+                raw_permitted_urls.append((restricted, urls))
 
         unrestricted_idxs = dict(((permission, tuple(
             SimplePattern.without_subsets(itertools.imap(SimplePattern, idxs))
@@ -369,6 +379,43 @@ class ELKProxyDaemon(UnixDaemon):
                             restrictions[opt][v][permission].append(SimplePattern(index))
 
         del raw_restrictions
+
+        unrestricted_urls = []
+        all_urls = {}
+
+        for url in raw_unrestricted_urls:
+            if url not in all_urls:
+                try:
+                    all_urls[url] = re.compile(url)
+                except re.error:
+                    continue
+
+            unrestricted_urls.append(all_urls[url])
+
+        permitted_urls = {'users': {}, 'group': {}}
+
+        for (restricted, urls) in raw_permitted_urls:
+            for (opt, vals) in restricted.iteritems():
+                for v in vals:
+                    if v not in unrestricted[opt]:
+                        compiled_urls = []
+
+                        for url in urls - raw_unrestricted_urls:
+                            if url not in all_urls:
+                                try:
+                                    all_urls[url] = re.compile(url)
+                                except re.error:
+                                    continue
+
+                            compiled_urls.append(all_urls[url])
+
+                        if compiled_urls:
+                            if v in permitted_urls[opt]:
+                                permitted_urls[opt][v].extend(compiled_urls)
+                            else:
+                                permitted_urls[opt][v] = compiled_urls
+
+        del raw_unrestricted_urls, raw_permitted_urls, all_urls
 
         for (opt, vals) in restrictions.iteritems():
             for (v, permissions) in vals.iteritems():
@@ -404,6 +451,8 @@ class ELKProxyDaemon(UnixDaemon):
                     'restrictions': restrictions,
                     'unrestricted': unrestricted,
                     'unrestricted_idxs': unrestricted_idxs,
+                    'unrestricted_urls': unrestricted_urls,
+                    'permitted_urls': permitted_urls,
                     'ldap_backend': ldap_backend,
                     'logger': self._logger
                 }}))

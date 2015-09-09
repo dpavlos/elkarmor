@@ -179,7 +179,11 @@ def app(environ, start_response):
 
         body = environ['wsgi.input'].read(clen) if clen else ''
 
-        if not (user is None or user in elkenv['unrestricted']['users']):
+        if not (user is None or user in elkenv['unrestricted']['users'] or any((
+            rgx.match(url[1:]) for rgx in itertools.chain(
+                elkenv['permitted_urls']['users'].get(user, ()), elkenv['unrestricted_urls']
+            )
+        ))):
             # Determine API and requested indices
 
             api = ''
