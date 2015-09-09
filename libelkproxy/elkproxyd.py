@@ -92,10 +92,25 @@ class LDAPBackend(object):
             self.connection.unbind()
             self._bound = False
 
+    def search(self, base_dn, search_filter, attributes = None):
+        if len(search_filter) > 1:
+            search_string = '(&('
+            search_string += ')('.join(
+                '{0}={1}'.format(k, v) for k, v in search_filter)
+            search_string += ')'
+        elif len(search_filter) > 0:
+            search_string = '({0}={1})'.format(
+                search_filter.keys()[0], search_filter.values()[0])
+        else:
+            search_string = '(objectClass=*)'
+
+        return self.connection.search_s(
+            base_dn, ldap.SCOPE_SUBTREE, search_string, attributes)
+
     def fetch_user_dn(self, username):
-        result = self.connection.search_s(
-            self._user_base_dn, ldap.SCOPE_SUBTREE,
-            '(&(objectClass=user)(sAMAccountName={0}))'.format(username), [])
+        result = self.search(
+            self._user_base_dn,
+            {'objectClass': 'user', 'sAMAccountName': username}, [])
         if len(result) == 0:
             raise ldap.NO_RESULTS_RETURNED(
                 {'desc': 'No DN found for user {0}'.format(username)})
