@@ -66,6 +66,8 @@ class LDAPBackend(object):
 
         # {'user': (frozenset(['group'...]), expires)}
         self._group_memberships = {}
+        self._bound = False
+        self._connection = None
 
     @property
     def connection(self):
