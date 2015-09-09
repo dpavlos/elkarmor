@@ -96,8 +96,8 @@ class LDAPBackend(object):
         if len(search_filter) > 1:
             search_string = '(&('
             search_string += ')('.join(
-                '{0}={1}'.format(k, v) for k, v in search_filter)
-            search_string += ')'
+                '{0}={1}'.format(k, v) for k, v in search_filter.iteritems())
+            search_string += '))'
         elif len(search_filter) > 0:
             search_string = '({0}={1})'.format(
                 search_filter.keys()[0], search_filter.values()[0])
