@@ -379,37 +379,42 @@ class ELKProxyDaemon(UnixDaemon):
         unrestricted_urls = []
         all_urls = {}
 
-        for url in raw_unrestricted_urls:
-            if url not in all_urls:
-                try:
-                    all_urls[url] = re.compile(url)
-                except re.error:
-                    continue
+        try:
+            for url in raw_unrestricted_urls:
+                if url not in all_urls:
+                    try:
+                        all_urls[url] = re.compile(url)
+                    except re.error:
+                        bad_url = url
+                        raise
 
-            unrestricted_urls.append(all_urls[url])
+                unrestricted_urls.append(all_urls[url])
 
-        permitted_urls = {'users': {}, 'group': {}}
+            permitted_urls = {'users': {}, 'group': {}}
 
-        for (restricted, urls) in raw_permitted_urls:
-            for (opt, vals) in restricted.iteritems():
-                for v in vals:
-                    if v not in unrestricted[opt]:
-                        compiled_urls = []
+            for (restricted, urls) in raw_permitted_urls:
+                for (opt, vals) in restricted.iteritems():
+                    for v in vals:
+                        if v not in unrestricted[opt]:
+                            compiled_urls = []
 
-                        for url in urls - raw_unrestricted_urls:
-                            if url not in all_urls:
-                                try:
-                                    all_urls[url] = re.compile(url)
-                                except re.error:
-                                    continue
+                            for url in urls - raw_unrestricted_urls:
+                                if url not in all_urls:
+                                    try:
+                                        all_urls[url] = re.compile(url)
+                                    except re.error:
+                                        bad_url = url
+                                        raise
 
-                            compiled_urls.append(all_urls[url])
+                                compiled_urls.append(all_urls[url])
 
-                        if compiled_urls:
-                            if v in permitted_urls[opt]:
-                                permitted_urls[opt][v].extend(compiled_urls)
-                            else:
-                                permitted_urls[opt][v] = compiled_urls
+                            if compiled_urls:
+                                if v in permitted_urls[opt]:
+                                    permitted_urls[opt][v].extend(compiled_urls)
+                                else:
+                                    permitted_urls[opt][v] = compiled_urls
+        except re.error as e:
+            raise ELKProxyInternalError(ECFGSEM, 'url-rgx', bad_url, e)
 
         for (opt, vals) in restrictions.iteritems():
             for (v, permissions) in vals.iteritems():
