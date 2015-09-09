@@ -395,6 +395,7 @@ class ELKProxyDaemon(UnixDaemon):
                 sslargs[x] = sslargs[y]
 
         ldap_backend = LDAPBackend(**self._cfg['ldap'])
+        ldap_backend.bind()
 
         def server_wrapper(address_family, SSL):
             return lambda *args, **kwargs: (HTTPSServer if SSL else HTTPServer)(*args, **dict(itertools.chain(
