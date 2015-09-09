@@ -135,13 +135,13 @@ class ELKProxyDaemon(UnixDaemon):
 
             cfg[cfn] = dict(((section, dict(cfgParser.items(section, True))) for section in cfgParser.sections()))
 
-        self._restrictions = cfg['restrictions']
-
         # Validate configuration
 
         self._cfg = dict(((k, getattr(self, '_validate_cfg_' + k)(cfg['config'])) for k in (
             'netio', 'elasticsearch', 'ldap', 'log'
         )))
+
+        self._parse_restrictions(cfg['restrictions'])
 
         # Set up logging
 
@@ -314,9 +314,7 @@ class ELKProxyDaemon(UnixDaemon):
         logging.shutdown()
         super(ELKProxyDaemon, self).cleanup()
 
-    def run(self):
-        http_connector = HTTPConnector(**self._cfg['elasticsearch'])
-
+    def _parse_restrictions(self, cfg_restrictions):
         raw_restrictions = []
         unrestricted = {'users': set(), 'group': set()}
         unrestricted_idxs = {}
@@ -324,7 +322,7 @@ class ELKProxyDaemon(UnixDaemon):
         raw_unrestricted_urls = set()
         raw_permitted_urls = []
 
-        for (name, restriction) in self._restrictions.iteritems():
+        for (name, restriction) in cfg_restrictions.iteritems():
             restricted = dict(((
                 opt, frozenset(ifilter_bool(istrip(parse_split(restriction.pop(opt, ''), sep))))
             ) for (opt, sep) in (('users', ','), ('group', '|'))))
@@ -378,8 +376,6 @@ class ELKProxyDaemon(UnixDaemon):
                                 restrictions[opt][v][permission] = []
                             restrictions[opt][v][permission].append(SimplePattern(index))
 
-        del raw_restrictions
-
         unrestricted_urls = []
         all_urls = {}
 
@@ -415,8 +411,6 @@ class ELKProxyDaemon(UnixDaemon):
                             else:
                                 permitted_urls[opt][v] = compiled_urls
 
-        del raw_unrestricted_urls, raw_permitted_urls, all_urls
-
         for (opt, vals) in restrictions.iteritems():
             for (v, permissions) in vals.iteritems():
                 for (permission, idxs) in permissions.iteritems():
@@ -434,6 +428,17 @@ class ELKProxyDaemon(UnixDaemon):
                 if not restrictions[opt][v]:
                     del restrictions[opt][v]
 
+        self._elkenv = (
+            ('restrictions', restrictions),
+            ('unrestricted', unrestricted),
+            ('unrestricted_idxs', unrestricted_idxs),
+            ('unrestricted_urls', unrestricted_urls),
+            ('permitted_urls', permitted_urls)
+        )
+
+    def run(self):
+        http_connector = HTTPConnector(**self._cfg['elasticsearch'])
+
         sslargs = self._cfg['netio']['sslargs']
 
         for (x, y) in itertools.permutations(sslargs):
@@ -442,20 +447,17 @@ class ELKProxyDaemon(UnixDaemon):
 
         ldap_backend = LDAPBackend(**self._cfg['ldap'])
 
+        elkenv = dict(itertools.chain(self._elkenv, (
+            ('connector', http_connector),
+            ('ldap_backend', ldap_backend),
+            ('logger', self._logger)
+        )))
+
         def server_wrapper(address_family, SSL):
             return lambda *args, **kwargs: (HTTPSServer if SSL else HTTPServer)(*args, **dict(itertools.chain(
                 kwargs.iteritems(),
                 sslargs.iteritems() if SSL else (),
-                (('address_family', address_family), ('wsgi_env', {'elkproxy': {
-                    'connector': http_connector,
-                    'restrictions': restrictions,
-                    'unrestricted': unrestricted,
-                    'unrestricted_idxs': unrestricted_idxs,
-                    'unrestricted_urls': unrestricted_urls,
-                    'permitted_urls': permitted_urls,
-                    'ldap_backend': ldap_backend,
-                    'logger': self._logger
-                }}))
+                (('address_family', address_family), ('wsgi_env', {'elkproxy': elkenv}))
             )))
 
         for (af, listen) in self._cfg['netio']['listen'].iteritems():
