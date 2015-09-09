@@ -89,7 +89,7 @@ class LDAPBackend(object):
             self.connection.unbind()
             self._bound = False
 
-    def member_of(self, user):
+    def get_group_memberships(self, username):
         memberships = self._group_memberships.get(user, False)
         now = datetime.now()
 

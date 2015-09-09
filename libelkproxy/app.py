@@ -156,12 +156,9 @@ def app(environ, start_response):
 
                 ldap_backend = elkenv['ldap_backend']
                 try:
-                    ldap_groups = ldap_backend.member_of(user)
-                except KeyError:
-                    logger.info(
-                        "rejecting non-anonymous request because"
-                        " the user {0!r} isn't listed in the LDAP tree".format(user)
-                    )
+                    ldap_groups = ldap_backend.get_group_memberships(user)
+                except Exception as error:
+                    logger.info('Rejecting non-anonymous request. Reason: ' + str(error))
                     start_response('401 Unauthorized', [('Content-Type', 'text/plain')])
                     return ()
 
