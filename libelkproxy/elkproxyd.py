@@ -74,6 +74,19 @@ class LDAPBackend(object):
 
         return self._connection
 
+    def bind(self):
+        if not self._bound
+            and self._bind_dn is not None
+            and self._bind_pw is not None:
+
+            self.connection.simple_bind_s(self._bind_dn, self._bind_pw)
+            self._bound = True
+
+    def unbind(self):
+        if self._bound:
+            self.connection.unbind()
+            self._bound = False
+
     def member_of(self, user):
         memberships = self._group_memberships.get(user, False)
         now = datetime.now()
