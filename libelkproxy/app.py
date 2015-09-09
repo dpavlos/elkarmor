@@ -27,6 +27,8 @@ from types import NoneType
 from libelkproxy import util_json
 from .util import ifilter_bool, istrip, normalize_pattern, SimplePattern
 
+from ldap import LDAPError
+
 
 __all__ = ['app']
 
@@ -157,8 +159,9 @@ def app(environ, start_response):
                 ldap_backend = elkenv['ldap_backend']
                 try:
                     ldap_groups = ldap_backend.get_group_memberships(user)
-                except Exception as error:
-                    logger.info('Rejecting non-anonymous request. Reason: ' + str(error))
+                except LDAPError as error:
+                    logger.info(
+                        'Rejecting non-anonymous request. Reason: ' + error.args[0]['desc'])
                     start_response('401 Unauthorized', [('Content-Type', 'text/plain')])
                     return ()
 
