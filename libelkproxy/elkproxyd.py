@@ -58,12 +58,11 @@ class ELKProxyInternalError(Exception):
 
 
 class LDAPBackend(object):
-    def __init__(self, url, starttls, user, passwd, basedn):
+    def __init__(self, url, base_dn, bind_dn = None, bind_pw = None):
         self._url = url
-        self._starttls = starttls
-        self._user = user
-        self._passwd = passwd
-        self._basedn = basedn
+        self._base_dn = base_dn
+        self._bind_dn = bind_dn
+        self._bind_pw = bind_pw
 
         # {'user': (frozenset(['group'...]), expires)}
         self._group_memberships = {}
