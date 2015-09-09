@@ -67,6 +67,13 @@ class LDAPBackend(object):
         # {'user': (frozenset(['group'...]), expires)}
         self._group_memberships = {}
 
+    @property
+    def connection(self):
+        if self._connection is None:
+            self._connection = ldap.initialize(self._url)
+
+        return self._connection
+
     def member_of(self, user):
         memberships = self._group_memberships.get(user, False)
         now = datetime.now()
