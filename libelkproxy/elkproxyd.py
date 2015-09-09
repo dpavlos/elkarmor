@@ -104,8 +104,15 @@ class LDAPBackend(object):
         else:
             search_string = '(objectClass=*)'
 
+        attrsonly = 0
+        if attributes is not None and not attributes:
+            # This is actually quite dirty as I was not able to find a way to
+            # select "nothing". This will now only omit the values of all
+            # attributes but the attribute names itself are still transmitted
+            attrsonly = 1
+
         return self.connection.search_s(
-            base_dn, ldap.SCOPE_SUBTREE, search_string, attributes)
+            base_dn, ldap.SCOPE_SUBTREE, search_string, attributes, attrsonly)
 
     def fetch_user_dn(self, username):
         result = self.search(
