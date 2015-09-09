@@ -67,10 +67,9 @@ class LDAPBackend(object):
         self._bind_dn = bind_dn
         self._bind_pw = bind_pw
 
-        # {'user': (frozenset(['group'...]), expires)}
-        self._group_memberships = {}
         self._bound = False
         self._connection = None
+        self._membership_cache = {}
 
     @property
     def connection(self):
@@ -128,30 +127,21 @@ class LDAPBackend(object):
         return result[0][0]
 
     def get_group_memberships(self, username):
-        memberships = self._group_memberships.get(user, False)
+        membership_cache = self._membership_cache.get(username)
         now = datetime.now()
 
-        if memberships and memberships[1] > now:
-            memberships = memberships[0]
+        if membership_cache is not None and membership_cache['expires'] > now:
+            memberships = membership_cache['memberships']
         else:
-            conn = ldap.initialize(self._url)
-            if self._starttls:
-                try:
-                    conn.start_tls_s()
-                except ldap.LDAPError:
-                    pass
-
-            conn.simple_bind_s(self._user, self._passwd)
-            try:
-                # TODO: connect to LDAP server and fetch the user's groups
-                memberships = frozenset() if 'user exists' else None
-            finally:
-                conn.unbind_s()
-
-            self._group_memberships[user] = (memberships, now + timedelta(minutes=15))
-
-        if memberships is None:
-            raise KeyError('no such user: ' + repr(user))
+            user_dn = self.fetch_user_dn(username)
+            group_filter = {'objectClass': 'group',
+                'member:1.2.840.113556.1.4.1941:': user_dn}
+            result = self.search(self._group_base_dn, group_filter, [])
+            memberships = frozenset(t[0] for t in result)
+            self._membership_cache[username] = {
+                'memberships': memberships,
+                'expires': now + timedelta(minutes=15)
+            }
 
         return memberships
 
