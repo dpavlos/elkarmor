@@ -58,9 +58,12 @@ class ELKProxyInternalError(Exception):
 
 
 class LDAPBackend(object):
-    def __init__(self, url, base_dn, bind_dn = None, bind_pw = None):
+    def __init__(
+            self, url, group_base_dn, user_base_dn,
+            bind_dn = None, bind_pw = None):
         self._url = url
-        self._base_dn = base_dn
+        self._group_base_dn = group_base_dn
+        self._user_base_dn = user_base_dn
         self._bind_dn = bind_dn
         self._bind_pw = bind_pw
 
@@ -267,11 +270,19 @@ class ELKProxyDaemon(UnixDaemon):
         config['bind_pw'] = cfg.get('bind_pw')
 
         try:
-            config['base_dn'] = cfg['base_dn']
+            config['group_base_dn'] = cfg['group_base_dn']
         except KeyError:
             raise ELKProxyInternalError(
                 ECFGSEM,
-                'LDAP config option "base_dn" is required'
+                'LDAP config option "group_base_dn" is required'
+            )
+
+        try:
+            config['user_base_dn'] = cfg['user_base_dn']
+        except KeyError:
+            raise ELKProxyInternalError(
+                ECFGSEM,
+                'LDAP config option "user_base_dn" is required'
             )
 
         return config
