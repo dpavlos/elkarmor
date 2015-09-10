@@ -416,6 +416,8 @@ class ELKProxyDaemon(UnixDaemon):
         for t in self._threads:
             t.join()
         logging.shutdown()
+        if 'ldap_backend' in self._elkenv:
+            self._elkenv['ldap_backend'].unbind()
         super(ELKProxyDaemon, self).cleanup()
 
     def _parse_restrictions(self, cfg_restrictions):
