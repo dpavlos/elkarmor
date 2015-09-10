@@ -171,6 +171,7 @@ class ELKProxyDaemon(UnixDaemon):
     def __init__(self, *args, **kwargs):
         self._cfgdir = kwargs.pop('cfgdir')
         self._cfg = {}
+        self._elkenv = {}
         self._servers = []
         self._threads = []
         super(ELKProxyDaemon, self).__init__(*args, **kwargs)
@@ -538,13 +539,11 @@ class ELKProxyDaemon(UnixDaemon):
                 if not restrictions[opt][v]:
                     del restrictions[opt][v]
 
-        self._elkenv = (
-            ('restrictions', restrictions),
-            ('unrestricted', unrestricted),
-            ('unrestricted_idxs', unrestricted_idxs),
-            ('unrestricted_urls', unrestricted_urls),
-            ('permitted_urls', permitted_urls)
-        )
+        self._elkenv['restrictions'] = restrictions
+        self._elkenv['unrestricted'] = unrestricted
+        self._elkenv['unrestricted_idxs'] = unrestricted_idxs
+        self._elkenv['unrestricted_urls'] = unrestricted_urls
+        self._elkenv['permitted_urls'] = permitted_urls
 
     def run(self):
         http_connector = HTTPConnector(**self._cfg['elasticsearch'])
@@ -558,17 +557,15 @@ class ELKProxyDaemon(UnixDaemon):
         ldap_backend = LDAPBackend(**self._cfg['ldap'])
         ldap_backend.bind()
 
-        elkenv = dict(itertools.chain(self._elkenv, (
-            ('connector', http_connector),
-            ('ldap_backend', ldap_backend),
-            ('logger', self._logger)
-        )))
+        self._elkenv['connector'] = http_connector
+        self._elkenv['ldap_backend'] = ldap_backend
+        self._elkenv['logger'] = self._logger
 
         def server_wrapper(address_family, SSL):
             return lambda *args, **kwargs: (HTTPSServer if SSL else HTTPServer)(*args, **dict(itertools.chain(
                 kwargs.iteritems(),
                 sslargs.iteritems() if SSL else (),
-                (('address_family', address_family), ('wsgi_env', {'elkproxy': elkenv}))
+                (('address_family', address_family), ('wsgi_env', {'elkproxy': self._elkenv}))
             )))
 
         for (af, listen) in self._cfg['netio']['listen'].iteritems():
