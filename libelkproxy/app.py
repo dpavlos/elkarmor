@@ -162,7 +162,7 @@ def app(environ, start_response):
                 except LDAPError as error:
                     logger.info(
                         'Rejecting non-anonymous request. Reason: ' + error.args[0]['desc'])
-                    start_response('401 Unauthorized', [('Content-Type', 'text/plain')])
+                    start_response('403 Forbidden', [('Content-Type', 'text/plain')])
                     return ()
 
         # Read request
