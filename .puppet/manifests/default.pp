@@ -84,7 +84,7 @@ exec { 'epel':
   command => '/usr/bin/yum -y install "https://dl.fedoraproject.org/pub/epel/epel-release-latest-6.noarch.rpm"',
   timeout => 0,
 }
--> package { 'python-netifaces': }
+-> package { [ 'python-netifaces', 'python-ldap' ]: }
 -> file { '/usr/lib/python2.6/site-packages/libelkproxy':
   ensure => link,
   target => '/vagrant/libelkproxy',
