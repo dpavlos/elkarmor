@@ -576,6 +576,12 @@ class ELKProxyDaemon(UnixDaemon):
         while True:
             sleep(86400)
 
+    def handle_reload(self):
+        self._parse_restrictions(self._load_config_file('restrictions'))
+        for server in self._servers:
+            server.wsgi_env = {'elkproxy': self._elkenv}
+            server.setup_environ()
+
 
 def main():
     root_logger = logging.getLogger()
