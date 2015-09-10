@@ -27,7 +27,7 @@ from time import sleep
 from threading import Thread
 from wsgiref.simple_server import make_server
 from datetime import datetime, timedelta
-from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
+from ConfigParser import RawConfigParser, Error as ConfigParserError
 from .daemon import UnixDaemon, get_daemon_option_parser
 from .util import *
 from .logging_handlers import *
@@ -36,6 +36,8 @@ from .app import *
 
 
 DEVNULL = open(os.devnull, 'r+b')
+DEFAULT_LOGIDENT = 'elkproxyd'
+DEFAULT_LOGLEVEL = logging.INFO
 
 log_lvl = {
     'crit':     logging.CRITICAL,
@@ -169,64 +171,61 @@ class ELKProxyDaemon(UnixDaemon):
     def __init__(self, *args, **kwargs):
         self._cfgdir = kwargs.pop('cfgdir')
         self._cfg = {}
+        self._elkenv = {}
         self._servers = []
         self._threads = []
         super(ELKProxyDaemon, self).__init__(*args, **kwargs)
 
-    def before_daemonize(self):
-        # Check whether the config directory is present and accessible
-
-        cfgdir = os.path.abspath(self._cfgdir)
-        if not os.access(cfgdir, os.R_OK | os.X_OK):
-            raise ELKProxyConfigError("the config directory {0!r} doesn't exist or isn't readable".format(cfgdir))
-
-        # Check whether all required config files are present and (syntactically) valid
-
-        cfg = {}
-        for cfn in ('config', 'restrictions'):
-            cfp = os.path.join(cfgdir, '{0}.ini'.format(cfn))
-            try:
-                cf = open(cfp, 'r')
-            except IOError as e:
-                if cfn == 'restrictions' and e.errno == ENOENT:
-                    cfg[cfn] = {}
-                    continue
-                raise ELKProxyConfigError("the config file {0!r} doesn't exist or isn't readable: {1!s}".format(cfp, e))
-
-            cfgParser = ConfigParser()
-            with cf as cf:
-                try:
-                    cfgParser.readfp(cf)
-                except ConfigParserError as e:
-                    raise ELKProxyConfigError("the config file {0!r} is syntactically invalid: {1!s}".format(cfp, e))
-
-            cfg[cfn] = dict(((section, dict(cfgParser.items(section, True))) for section in cfgParser.sections()))
-
-        # Validate configuration
-
-        self._cfg = dict(((k, getattr(self, '_validate_cfg_' + k)(cfg['config'])) for k in (
-            'netio', 'elasticsearch', 'ldap', 'log'
-        )))
-
-        self._parse_restrictions(cfg['restrictions'])
-
-        # Set up logging
-
-        logging_cfg = self._cfg['log']
-
-        self._logger = logging.getLogger(__name__)
-        self._logger.setLevel(log_lvl[logging_cfg['level']])
+    def _load_config_file(self, filename, defaults = None):
+        filepath = os.path.join(os.path.abspath(self._cfgdir), filename + '.ini')
+        config = RawConfigParser(defaults)
 
         try:
-            self._logger.addHandler(FileHandler(logging_cfg['path'], logging_cfg['prefix']) if (
-                logging_cfg['type'] == 'file'
-            ) else SysLogHandler(logging_cfg['prefix']))
-        except IOError as e:
-            raise ELKProxyConfigLogError("the log file {0!r} isn't writable: {1!s}".format(logging_cfg['path'], e))
+            with open(filepath) as f:
+                config.readfp(f, filename)
+        except ConfigParserError as error:
+            raise ELKProxyConfigError(
+                "The config file {0} is syntactically invalid: {1}"
+                "".format(filepath, error))
+        except IOError as error:
+            if defaults is None:
+                raise ELKProxyConfigError(
+                    "The config file {0} doesn't exist or isn't readable: {1}"
+                    "".format(filepath, error))
 
-        daemon_logger = logging.getLogger('libelkproxy.daemon')
-        for handler in daemon_logger.handlers:
-            daemon_logger.removeHandler(handler)
+        return dict((s, dict(config.items(s))) for s in config.sections())
+
+    def before_daemonize(self):
+        # Load the general configuration..
+        self._cfg = self._load_config_file('config')
+
+        # ..and validate it
+        self._cfg['log'] = self._validate_cfg_log(self._cfg)
+        self._cfg['netio'] = self._validate_cfg_netio(self._cfg)
+        self._cfg['ldap'] = self._validate_cfg_ldap(self._cfg)
+        self._cfg['elasticsearch'] = self._validate_cfg_elasticsearch(self._cfg)
+
+        # Load the restriction configuration and parse/validate it
+        self._parse_restrictions(self._load_config_file('restrictions', defaults={}))
+
+        # Set up logging
+        logging_cfg = self._cfg['log']
+
+        if logging_cfg['type'] == 'file':
+            try:
+                log_handler = FileHandler(logging_cfg['path'], logging_cfg['prefix'])
+            except IOError as e:
+                raise ELKProxyConfigLogError("the log file {0!r} isn't writable: {1!s}".format(logging_cfg['path'], e))
+        else:
+            log_handler = SysLogHandler(logging_cfg['prefix'])
+
+        root_logger = logging.getLogger()
+        root_logger.setLevel(log_lvl[logging_cfg['level']])
+        for handler in root_logger.handlers:
+            root_logger.removeHandler(handler)
+        root_logger.addHandler(log_handler)
+
+        self._logger = logging.getLogger(__name__)
 
     @staticmethod
     def _validate_cfg_netio(cfg):
@@ -401,7 +400,7 @@ class ELKProxyDaemon(UnixDaemon):
             if not fpath:
                 raise ELKProxyConfigLogError("the logging type is 'file', but no file is configured to log into")
 
-        logging_cfg['prefix'] = cfg.pop('prefix', '').strip() or 'elkproxyd'
+        logging_cfg['prefix'] = cfg.pop('prefix', '').strip() or DEFAULT_LOGIDENT
 
         return logging_cfg
 
@@ -411,6 +410,8 @@ class ELKProxyDaemon(UnixDaemon):
         for t in self._threads:
             t.join()
         logging.shutdown()
+        if 'ldap_backend' in self._elkenv:
+            self._elkenv['ldap_backend'].unbind()
         super(ELKProxyDaemon, self).cleanup()
 
     def _parse_restrictions(self, cfg_restrictions):
@@ -534,13 +535,11 @@ class ELKProxyDaemon(UnixDaemon):
                 if not restrictions[opt][v]:
                     del restrictions[opt][v]
 
-        self._elkenv = (
-            ('restrictions', restrictions),
-            ('unrestricted', unrestricted),
-            ('unrestricted_idxs', unrestricted_idxs),
-            ('unrestricted_urls', unrestricted_urls),
-            ('permitted_urls', permitted_urls)
-        )
+        self._elkenv['restrictions'] = restrictions
+        self._elkenv['unrestricted'] = unrestricted
+        self._elkenv['unrestricted_idxs'] = unrestricted_idxs
+        self._elkenv['unrestricted_urls'] = unrestricted_urls
+        self._elkenv['permitted_urls'] = permitted_urls
 
     def run(self):
         http_connector = HTTPConnector(**self._cfg['elasticsearch'])
@@ -554,17 +553,15 @@ class ELKProxyDaemon(UnixDaemon):
         ldap_backend = LDAPBackend(**self._cfg['ldap'])
         ldap_backend.bind()
 
-        elkenv = dict(itertools.chain(self._elkenv, (
-            ('connector', http_connector),
-            ('ldap_backend', ldap_backend),
-            ('logger', self._logger)
-        )))
+        self._elkenv['connector'] = http_connector
+        self._elkenv['ldap_backend'] = ldap_backend
+        self._elkenv['logger'] = self._logger
 
         def server_wrapper(address_family, SSL):
             return lambda *args, **kwargs: (HTTPSServer if SSL else HTTPServer)(*args, **dict(itertools.chain(
                 kwargs.iteritems(),
                 sslargs.iteritems() if SSL else (),
-                (('address_family', address_family), ('wsgi_env', {'elkproxy': elkenv}))
+                (('address_family', address_family), ('wsgi_env', {'elkproxy': self._elkenv}))
             )))
 
         for (af, listen) in self._cfg['netio']['listen'].iteritems():
@@ -579,8 +576,18 @@ class ELKProxyDaemon(UnixDaemon):
         while True:
             sleep(86400)
 
+    def handle_reload(self):
+        self._parse_restrictions(self._load_config_file('restrictions'))
+        for server in self._servers:
+            server.wsgi_env = {'elkproxy': self._elkenv}
+            server.setup_environ()
+
 
 def main():
+    root_logger = logging.getLogger()
+    root_logger.setLevel(DEFAULT_LOGLEVEL)
+    root_logger.addHandler(SysLogHandler(DEFAULT_LOGIDENT))
+
     parser = get_daemon_option_parser()
     for option_group in parser.option_groups:
         if option_group.title == 'Start and stop':
@@ -590,7 +597,6 @@ def main():
             )
             break
     opts, args = parser.parse_args()
-    logging.getLogger('libelkproxy.daemon').addHandler(logging.StreamHandler())
     try:
         return getattr(
             ELKProxyDaemon(**dict(itertools.ifilter((lambda x: x[1] is not None), vars(opts).iteritems()))),
