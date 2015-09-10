@@ -27,7 +27,7 @@ from time import sleep
 from threading import Thread
 from wsgiref.simple_server import make_server
 from datetime import datetime, timedelta
-from ConfigParser import SafeConfigParser as ConfigParser, Error as ConfigParserError
+from ConfigParser import RawConfigParser, Error as ConfigParserError
 from .daemon import UnixDaemon, get_daemon_option_parser
 from .util import *
 from .logging_handlers import *
@@ -176,45 +176,39 @@ class ELKProxyDaemon(UnixDaemon):
         self._threads = []
         super(ELKProxyDaemon, self).__init__(*args, **kwargs)
 
+    def _load_config_file(self, filename, defaults = None):
+        filepath = os.path.join(os.path.abspath(self._cfgdir), filename + '.ini')
+        config = RawConfigParser(defaults)
+
+        try:
+            with open(filepath) as f:
+                config.readfp(f, filename)
+        except ConfigParserError as error:
+            raise ELKProxyConfigError(
+                "The config file {0} is syntactically invalid: {1}"
+                "".format(filepath, error))
+        except IOError as error:
+            if defaults is None:
+                raise ELKProxyConfigError(
+                    "The config file {0} doesn't exist or isn't readable: {1}"
+                    "".format(filepath, error))
+
+        return dict((s, dict(config.items(s))) for s in config.sections())
+
     def before_daemonize(self):
-        # Check whether the config directory is present and accessible
+        # Load the general configuration..
+        self._cfg = self._load_config_file('config')
 
-        cfgdir = os.path.abspath(self._cfgdir)
-        if not os.access(cfgdir, os.R_OK | os.X_OK):
-            raise ELKProxyConfigError("the config directory {0!r} doesn't exist or isn't readable".format(cfgdir))
+        # ..and validate it
+        self._cfg['log'] = self._validate_cfg_log(self._cfg)
+        self._cfg['netio'] = self._validate_cfg_netio(self._cfg)
+        self._cfg['ldap'] = self._validate_cfg_ldap(self._cfg)
+        self._cfg['elasticsearch'] = self._validate_cfg_elasticsearch(self._cfg)
 
-        # Check whether all required config files are present and (syntactically) valid
-
-        cfg = {}
-        for cfn in ('config', 'restrictions'):
-            cfp = os.path.join(cfgdir, '{0}.ini'.format(cfn))
-            try:
-                cf = open(cfp, 'r')
-            except IOError as e:
-                if cfn == 'restrictions' and e.errno == ENOENT:
-                    cfg[cfn] = {}
-                    continue
-                raise ELKProxyConfigError("the config file {0!r} doesn't exist or isn't readable: {1!s}".format(cfp, e))
-
-            cfgParser = ConfigParser()
-            with cf as cf:
-                try:
-                    cfgParser.readfp(cf)
-                except ConfigParserError as e:
-                    raise ELKProxyConfigError("the config file {0!r} is syntactically invalid: {1!s}".format(cfp, e))
-
-            cfg[cfn] = dict(((section, dict(cfgParser.items(section, True))) for section in cfgParser.sections()))
-
-        # Validate configuration
-
-        self._cfg = dict(((k, getattr(self, '_validate_cfg_' + k)(cfg['config'])) for k in (
-            'netio', 'elasticsearch', 'ldap', 'log'
-        )))
-
-        self._parse_restrictions(cfg['restrictions'])
+        # Load the restriction configuration and parse/validate it
+        self._parse_restrictions(self._load_config_file('restrictions', defaults={}))
 
         # Set up logging
-
         logging_cfg = self._cfg['log']
 
         if logging_cfg['type'] == 'file':
