@@ -38,7 +38,7 @@ try:
     MAXFD = os.sysconf('SC_OPEN_MAX')
 except:
     MAXFD = 1024
-DAEMON_FUNCTIONS = ('start', 'stop', 'status', 'restart')
+DAEMON_FUNCTIONS = ['start', 'stop', 'status', 'restart', 'reload']
 log = logging.getLogger(__name__)
 
 
@@ -100,6 +100,21 @@ class UnixDaemon(object):
         self._delpid()
 
     def cleanup(self):
+        pass
+
+    def _sighup_handler(self, signum, frame):
+        log.info('Got signal to reload {0}'.format(self.name))
+
+        try:
+            self.handle_reload()
+        except Exception as error:
+            log.error(
+                'An error occured while reloading {0}: {1}'
+                ''.format(self.name, error))
+        else:
+            log.info('Successfully reloaded {0}'.format(self.name))
+
+    def handle_reload(self):
         pass
 
     def _delpid(self):
@@ -240,6 +255,7 @@ class UnixDaemon(object):
             self._redirect_stream(sys.stdout, redirect_to)
             self._redirect_stream(sys.stderr, redirect_to)
         signal.signal(signal.SIGTERM, self._sigterm_handler)
+        signal.signal(signal.SIGHUP, self._sighup_handler)
         atexit.register(self._atexit)
         self._writepid()
         if not self._detach:
@@ -264,6 +280,16 @@ class UnixDaemon(object):
         except OSError, e:
             if e.errno != errno.ESRCH:
                 raise e
+        return 0
+
+    def reload(self):
+        pid = self._getpid()
+        if not pid:
+            log.error('%s is NOT running', self.name)
+            sys.exit(1)
+        log.info('Issueing reload procedures of %s', self.name)
+        if pid != True:
+            os.kill(pid, signal.SIGHUP)
         return 0
 
     def restart(self):
