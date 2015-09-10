@@ -77,6 +77,8 @@ file { '/etc/elkproxyd':
   path => '/etc/elkproxyd/config.ini',
   ensure => file,
   source => '/vagrant/.puppet/files/elkproxyd.ini',
+  replace => false,
+  links => follow,
 }
 
 exec { 'epel':
