@@ -36,6 +36,8 @@ from .app import *
 
 
 DEVNULL = open(os.devnull, 'r+b')
+DEFAULT_LOGIDENT = 'elkproxyd'
+DEFAULT_LOGLEVEL = logging.INFO
 
 log_lvl = {
     'crit':     logging.CRITICAL,
@@ -214,19 +216,21 @@ class ELKProxyDaemon(UnixDaemon):
 
         logging_cfg = self._cfg['log']
 
+        if logging_cfg['type'] == 'file':
+            try:
+                log_handler = FileHandler(logging_cfg['path'], logging_cfg['prefix'])
+            except IOError as e:
+                raise ELKProxyConfigLogError("the log file {0!r} isn't writable: {1!s}".format(logging_cfg['path'], e))
+        else:
+            log_handler = SysLogHandler(logging_cfg['prefix'])
+
+        root_logger = logging.getLogger()
+        root_logger.setLevel(log_lvl[logging_cfg['level']])
+        for handler in root_logger.handlers:
+            root_logger.removeHandler(handler)
+        root_logger.addHandler(log_handler)
+
         self._logger = logging.getLogger(__name__)
-        self._logger.setLevel(log_lvl[logging_cfg['level']])
-
-        try:
-            self._logger.addHandler(FileHandler(logging_cfg['path'], logging_cfg['prefix']) if (
-                logging_cfg['type'] == 'file'
-            ) else SysLogHandler(logging_cfg['prefix']))
-        except IOError as e:
-            raise ELKProxyConfigLogError("the log file {0!r} isn't writable: {1!s}".format(logging_cfg['path'], e))
-
-        daemon_logger = logging.getLogger('libelkproxy.daemon')
-        for handler in daemon_logger.handlers:
-            daemon_logger.removeHandler(handler)
 
     @staticmethod
     def _validate_cfg_netio(cfg):
@@ -401,7 +405,7 @@ class ELKProxyDaemon(UnixDaemon):
             if not fpath:
                 raise ELKProxyConfigLogError("the logging type is 'file', but no file is configured to log into")
 
-        logging_cfg['prefix'] = cfg.pop('prefix', '').strip() or 'elkproxyd'
+        logging_cfg['prefix'] = cfg.pop('prefix', '').strip() or DEFAULT_LOGIDENT
 
         return logging_cfg
 
@@ -581,6 +585,10 @@ class ELKProxyDaemon(UnixDaemon):
 
 
 def main():
+    root_logger = logging.getLogger()
+    root_logger.setLevel(DEFAULT_LOGLEVEL)
+    root_logger.addHandler(SysLogHandler(DEFAULT_LOGIDENT))
+
     parser = get_daemon_option_parser()
     for option_group in parser.option_groups:
         if option_group.title == 'Start and stop':
@@ -590,7 +598,6 @@ def main():
             )
             break
     opts, args = parser.parse_args()
-    logging.getLogger('libelkproxy.daemon').addHandler(logging.StreamHandler())
     try:
         return getattr(
             ELKProxyDaemon(**dict(itertools.ifilter((lambda x: x[1] is not None), vars(opts).iteritems()))),
