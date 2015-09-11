@@ -420,6 +420,7 @@ class ELKProxyDaemon(UnixDaemon):
     def _parse_restrictions(self, cfg_restrictions):
         raw_restrictions = []
         unrestricted = {'users': set(), 'group': set()}
+        read_only_subjects = {'users': set(), 'group': set()}
         unrestricted_idxs = {}
 
         raw_unrestricted_urls = set()
@@ -436,9 +437,19 @@ class ELKProxyDaemon(UnixDaemon):
 
             passthrough = restriction.pop('passthrough', '').strip().lower() == 'true'
             if passthrough:
+                # TODO: This causes any restriction to be of type passthrough for each of its
+                #       subjects. This MUST only apply to the restriction it was defined in
                 for (opt, vals) in restricted.iteritems():
                     for v in vals:
                         unrestricted[opt].add(v)
+
+            read_only = restriction.pop('read_only', '').strip().lower() == 'true'
+            if read_only:
+                # TODO: This causes any restriction to be of type read_only for each of its
+                #       subjects. This MUST only apply to the restriction it was defined in
+                for (subject_type, subjects) in restricted.iteritems():
+                    for subject in subjects:
+                        read_only_subjects[subject_type].add(subject)
 
             urls = frozenset((self._cfg_opt_url_switch[m.group(1)].format(restriction.pop(k)) for (k, m) in (
                 (k, self._cfg_opt_url_rgx.match(k)) for k in frozenset(restriction)
@@ -540,6 +551,7 @@ class ELKProxyDaemon(UnixDaemon):
 
         self._elkenv['restrictions'] = restrictions
         self._elkenv['unrestricted'] = unrestricted
+        self._elkenv['read_only_subjects'] = read_only_subjects
         self._elkenv['unrestricted_idxs'] = unrestricted_idxs
         self._elkenv['unrestricted_urls'] = unrestricted_urls
         self._elkenv['permitted_urls'] = permitted_urls
