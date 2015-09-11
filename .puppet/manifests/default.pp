@@ -81,6 +81,15 @@ file { '/etc/elkproxyd':
   links => follow,
 }
 
+file { 'elkproxyd-cfg-restrictions':
+  path => '/etc/elkproxyd/restrictions.ini',
+  ensure => file,
+  source => '/vagrant/.puppet/files/elkproxyd-restrictions.ini',
+  replace => false,
+  links => follow,
+  require => File['/etc/elkproxyd'],
+}
+
 exec { 'epel':
   unless => '/bin/rpm --quiet -q epel-release',
   command => '/usr/bin/yum -y install "https://dl.fedoraproject.org/pub/epel/epel-release-latest-6.noarch.rpm"',
@@ -95,7 +104,7 @@ exec { 'epel':
   ensure => file,
   source => '/vagrant/.puppet/files/init.d-elkproxy',
   mode => '0744',
-  require => File[['elkproxyd-pid', 'elkproxyd-cfg']],
+  require => File[['elkproxyd-pid', 'elkproxyd-cfg', 'elkproxyd-cfg-restrictions']],
 }
 -> service { 'elkproxy':
   ensure => running,
