@@ -182,7 +182,7 @@ def app(environ, start_response):
         if not (user is None or (
             user in elkenv['unrestricted']['users'] or ldap_groups & elkenv['unrestricted']['group']
         ) or any((
-            rgx.match(url[1:]) for rgx in frozenset(itertools.chain(
+            rgx.search(url[1:]) for rgx in frozenset(itertools.chain(
                 elkenv['permitted_urls']['users'].get(user, ()),
                 (pattern for group in ldap_groups for pattern in elkenv['permitted_urls']['group'].get(group, [])),
                 elkenv['unrestricted_urls']

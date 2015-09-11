@@ -168,6 +168,9 @@ class LDAPBackend(object):
 class ELKProxyDaemon(UnixDaemon):
     name = 'ELK Proxy'
 
+    _cfg_opt_url_rgx = re.compile(r'\Aurl_(?:(begin|end|full)_)?')
+    _cfg_opt_url_switch = {None: '{0}', 'begin': r'\A{0}', 'end': r'{0}\Z', 'full': r'\A{0}\Z'}
+
     def __init__(self, *args, **kwargs):
         self._cfgdir = kwargs.pop('cfgdir')
         self._cfg = {}
@@ -437,9 +440,9 @@ class ELKProxyDaemon(UnixDaemon):
                     for v in vals:
                         unrestricted[opt].add(v)
 
-            urls = frozenset(ifilter_bool((
-                restriction.pop(k).strip() for k in frozenset(restriction) if k.startswith('url_')
-            )))
+            urls = frozenset((self._cfg_opt_url_switch[m.group(1)].format(restriction.pop(k)) for (k, m) in (
+                (k, self._cfg_opt_url_rgx.match(k)) for k in frozenset(restriction)
+            ) if m))
 
             permissions = itertools.chain.from_iterable((
                 itertools.product(*(
