@@ -149,6 +149,8 @@ file { 'httpd-htpasswds':
   path => '/etc/httpd/htpasswds',
   ensure => file,
   source => '/vagrant/.puppet/files/httpd-htpasswds',
+  replace => false,
+  links => follow,
 }
 
 package { 'mod_ssl': }
