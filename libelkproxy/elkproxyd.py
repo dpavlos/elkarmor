@@ -533,8 +533,8 @@ class ELKProxyDaemon(UnixDaemon):
             )
 
         for (opt, vals) in restrictions.iteritems():
-            for (v, permissions) in vals.iteritems():
-                for (permission, idxs) in permissions.iteritems():
+            for (v, permissions) in vals.items():
+                for (permission, idxs) in permissions.items():
                     idxs = tuple((
                         idx1 for idx1 in SimplePattern.without_subsets(idxs) if not any((
                             idx2.superset(idx1) for idx2 in unrestricted_idxs.get(permission, ())
