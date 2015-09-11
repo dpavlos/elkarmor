@@ -21,7 +21,6 @@ import itertools
 import json
 import sys
 import traceback
-import ldap
 from base64 import b64decode
 from cStringIO import StringIO
 from types import NoneType
@@ -160,10 +159,10 @@ def app(environ, start_response):
                 ldap_backend = elkenv['ldap_backend']
                 try:
                     ldap_groups = ldap_backend.get_group_memberships(user)
-                except ldap.NO_RESULTS_RETURNED as error:
+                except LDAPError as error:
                     logger.info(
                         'Rejecting non-anonymous request. Reason: ' + error.args[0]['desc'])
-                    start_response('403 Forbidden', [('Content-Type', 'text/plain')])
+                    start_response('401 Unauthorized', [('Content-Type', 'text/plain')])
                     return ()
 
         # Read request
