@@ -35,6 +35,11 @@ class HTTPServer(WSGIServer):
         for (k, v) in self.wsgi_env.iteritems():
             self.base_environ[k] = v
 
+    def patch_wsgi_env(self, data, env='elkproxy'):
+        for k, v in data.iteritems():
+            self.wsgi_env[env][k] = v
+            self.base_environ[env][k] = v
+
 
 class HTTPSServer(HTTPServer):
     def __init__(self, *args, **kwargs):

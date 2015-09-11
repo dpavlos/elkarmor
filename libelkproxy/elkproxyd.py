@@ -593,9 +593,16 @@ class ELKProxyDaemon(UnixDaemon):
 
     def handle_reload(self):
         self._parse_restrictions(self._load_config_file('restrictions'))
+        new_restriction_env = {
+            'restrictions': self._elkenv['restrictions'],
+            'unrestricted': self._elkenv['unrestricted'],
+            'read_only_subjects': self._elkenv['read_only_subjects'],
+            'unrestricted_idxs': self._elkenv['unrestricted_idxs'],
+            'unrestricted_urls': self._elkenv['unrestricted_urls'],
+            'permitted_urls': self._elkenv['permitted_urls']
+        }
         for server in self._servers:
-            server.wsgi_env = {'elkproxy': self._elkenv}
-            server.setup_environ()
+            server.patch_wsgi_env(new_restriction_env)
 
 
 def main():
