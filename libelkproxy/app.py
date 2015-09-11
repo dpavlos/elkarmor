@@ -185,7 +185,7 @@ def app(environ, start_response):
         ) or any((
             rgx.match(url[1:]) for rgx in frozenset(itertools.chain(
                 elkenv['permitted_urls']['users'].get(user, ()),
-                itertools.chain((elkenv['permitted_urls']['group'].get(group, ()) for group in ldap_groups)),
+                (pattern for group in ldap_groups for pattern in elkenv['permitted_urls']['group'].get(group, [])),
                 elkenv['unrestricted_urls']
             ))
         ))):
