@@ -419,7 +419,6 @@ class ELKProxyDaemon(UnixDaemon):
 
     def _parse_restrictions(self, cfg_restrictions):
         raw_restrictions = []
-        unrestricted = {'users': set(), 'group': set()}
         read_only_subjects = {'users': set(), 'group': set()}
         unrestricted_idxs = {}
 
@@ -434,14 +433,6 @@ class ELKProxyDaemon(UnixDaemon):
             unrestricted_idx = '*' in restricted['users']
             if unrestricted_idx:
                 restricted['users'] -= frozenset('*')
-
-            passthrough = restriction.pop('passthrough', '').strip().lower() == 'true'
-            if passthrough:
-                # TODO: This causes any restriction to be of type passthrough for each of its
-                #       subjects. This MUST only apply to the restriction it was defined in
-                for (opt, vals) in restricted.iteritems():
-                    for v in vals:
-                        unrestricted[opt].add(v)
 
             read_only = restriction.pop('read_only', '').strip().lower() == 'true'
             if read_only:
@@ -468,7 +459,7 @@ class ELKProxyDaemon(UnixDaemon):
                     unrestricted_idxs[permission].add(idx)
 
                 raw_unrestricted_urls.update(urls)
-            elif not passthrough:
+            else:
                 raw_restrictions.append((restricted, frozenset(permissions)))
                 raw_permitted_urls.append((restricted, urls))
 
@@ -481,14 +472,13 @@ class ELKProxyDaemon(UnixDaemon):
         for (restricted, permissions) in raw_restrictions:
             for (opt, vals) in restricted.iteritems():
                 for v in vals:
-                    if v not in unrestricted[opt]:
-                        if v not in restrictions[opt]:
-                            restrictions[opt][v] = {}
+                    if v not in restrictions[opt]:
+                        restrictions[opt][v] = {}
 
-                        for (permission, index) in permissions:
-                            if permission not in restrictions[opt][v]:
-                                restrictions[opt][v][permission] = []
-                            restrictions[opt][v][permission].append(SimplePattern(index))
+                    for (permission, index) in permissions:
+                        if permission not in restrictions[opt][v]:
+                            restrictions[opt][v][permission] = []
+                        restrictions[opt][v][permission].append(SimplePattern(index))
 
         unrestricted_urls = []
         all_urls = {}
@@ -509,24 +499,23 @@ class ELKProxyDaemon(UnixDaemon):
             for (restricted, urls) in raw_permitted_urls:
                 for (opt, vals) in restricted.iteritems():
                     for v in vals:
-                        if v not in unrestricted[opt]:
-                            compiled_urls = []
+                        compiled_urls = []
 
-                            for url in urls - raw_unrestricted_urls:
-                                if url not in all_urls:
-                                    try:
-                                        all_urls[url] = re.compile(url)
-                                    except re.error:
-                                        bad_url = url
-                                        raise
+                        for url in urls - raw_unrestricted_urls:
+                            if url not in all_urls:
+                                try:
+                                    all_urls[url] = re.compile(url)
+                                except re.error:
+                                    bad_url = url
+                                    raise
 
-                                compiled_urls.append(all_urls[url])
+                            compiled_urls.append(all_urls[url])
 
-                            if compiled_urls:
-                                if v in permitted_urls[opt]:
-                                    permitted_urls[opt][v].extend(compiled_urls)
-                                else:
-                                    permitted_urls[opt][v] = compiled_urls
+                        if compiled_urls:
+                            if v in permitted_urls[opt]:
+                                permitted_urls[opt][v].extend(compiled_urls)
+                            else:
+                                permitted_urls[opt][v] = compiled_urls
         except re.error as e:
             raise ELKProxyConfigRestrictionsError(
                 'invalid regular expression for matching a URL ({0!r}): {1!s}'.format(bad_url, e)
@@ -550,7 +539,6 @@ class ELKProxyDaemon(UnixDaemon):
                     del restrictions[opt][v]
 
         self._elkenv['restrictions'] = restrictions
-        self._elkenv['unrestricted'] = unrestricted
         self._elkenv['read_only_subjects'] = read_only_subjects
         self._elkenv['unrestricted_idxs'] = unrestricted_idxs
         self._elkenv['unrestricted_urls'] = unrestricted_urls
@@ -595,7 +583,6 @@ class ELKProxyDaemon(UnixDaemon):
         self._parse_restrictions(self._load_config_file('restrictions'))
         new_restriction_env = {
             'restrictions': self._elkenv['restrictions'],
-            'unrestricted': self._elkenv['unrestricted'],
             'read_only_subjects': self._elkenv['read_only_subjects'],
             'unrestricted_idxs': self._elkenv['unrestricted_idxs'],
             'unrestricted_urls': self._elkenv['unrestricted_urls'],

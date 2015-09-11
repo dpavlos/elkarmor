@@ -170,7 +170,7 @@ def app(environ, start_response):
 
         body = environ['wsgi.input'].read(clen) if clen else ''
 
-        if not (user is None or user in elkenv['unrestricted']['users'] or any((
+        if not (user is None or any((
             rgx.search(url[1:]) for rgx in frozenset(itertools.chain(
                 elkenv['permitted_urls']['users'].get(user, ()), elkenv['unrestricted_urls']
             ))
@@ -185,11 +185,11 @@ def app(environ, start_response):
                 start_response('403 Forbidden', [('Content-Type', 'text/plain')])
                 return ()
 
-            if not (ldap_groups & elkenv['unrestricted']['group'] or any((
+            if not any((
                 rgx.search(url[1:]) for rgx in frozenset((
                     pattern for group in ldap_groups for pattern in elkenv['permitted_urls']['group'].get(group, [])
                 ))
-            ))):
+            )):
                 # Determine API and requested indices
 
                 api = ''
