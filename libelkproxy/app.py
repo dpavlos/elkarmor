@@ -400,7 +400,7 @@ def app(environ, start_response):
                     start_response('403 Forbidden', [('Content-Type', 'text/plain')])
                     return 'You may not access the following requested indices:\n ' + '\n '.join(deny_idxs),
 
-                if environ['REQUEST_METHOD'].lower() not in 'get head' and api and api not in 'mget msearch':
+                if environ['REQUEST_METHOD'].lower() not in 'get head' and api and api not in 'mget search msearch validate count explain':
                     read_only = False
                     if user in elkenv['restrictions']['users'] and 'read' in elkenv['restrictions']['users'][user]:
                         for index in SimplePattern.without_subsets(req_idxs):
