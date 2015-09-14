@@ -23,6 +23,8 @@ import sys
 import traceback
 from base64 import b64decode
 from cStringIO import StringIO
+from datetime import datetime
+from random import randint
 from types import NoneType
 from libelkproxy import util_json
 from .util import ifilter_bool, istrip, normalize_pattern, SimplePattern
@@ -108,6 +110,11 @@ http_basic_auth_header = re.compile(r'Basic\s+(\S*)(?!.)', re.I)
 def app(environ, start_response):
     elkenv = environ['elkproxy']
     logger = elkenv['logger']
+    now = datetime.now()
+    uniq_prefix = '[request {0:08x}{1:08x}]'.format(
+        (now.minute * 60 + now.second) * 1000000 + now.microsecond,
+        randint(0, 4294967295)
+    )
 
     try:
         # Deny absolute URLs
@@ -117,7 +124,9 @@ def app(environ, start_response):
         url = path_info + (query_str and '?' + query_str)
 
         if not path_info.startswith('/'):
-            logger.info("denying access to URL {0!r} as it doesn't start with a `/'".format(url))
+            logger.info("{uniqprefix} denying access to URL {0!r} as it doesn't start with a `/'".format(
+                url, uniqprefix=uniq_prefix
+            ))
             start_response('403 Forbidden', [('Content-Type', 'text/plain')])
             return "Invalid URL: {0!r}\nOnly relative ones (starting with `/') are allowed!".format(url),
 
@@ -148,8 +157,8 @@ def app(environ, start_response):
                         raise ValueError('Must contain a colon (to separate username and password)!')
                 except ValueError as e:
                     logger.info(
-                        'rejecting non-anonymous request because of'
-                        ' malformed authentication credentials: {0!r}'.format(b64cred)
+                        '{uniqprefix} rejecting non-anonymous request because of'
+                        ' malformed authentication credentials: {0!r}'.format(b64cred, uniqprefix=uniq_prefix)
                     )
                     start_response('400 Bad Request', [('Content-Type', 'text/plain')])
                     return 'Invalid authentication credentials: {0!r}\n{1!s}'.format(cred, e),
@@ -164,7 +173,9 @@ def app(environ, start_response):
             if clen < 0:
                 raise ValueError()
         except ValueError:
-            logger.info('rejecting request because of malformed content-length: {0!r}'.format(clen))
+            logger.info('{uniqprefix} rejecting request because of malformed content-length: {0!r}'.format(
+                clen, uniqprefix=uniq_prefix
+            ))
             start_response('400 Bad Request', [('Content-Type', 'text/plain')])
             return 'Invalid Content-Length: ' + repr(clen),
 
@@ -187,7 +198,9 @@ def app(environ, start_response):
                 except TypeError:
                     message = error.args[0]
 
-                logger.info('Rejecting non-anonymous request. Reason: ' + message)
+                logger.info('{uniqprefix} Rejecting non-anonymous request. Reason: {0}'.format(
+                    message, uniqprefix=uniq_prefix
+                ))
                 start_response('403 Forbidden', [('Content-Type', 'text/plain')])
                 return ()
             finally:
@@ -344,8 +357,8 @@ def app(environ, start_response):
                     except InvalidAPICall as e:
                         m = str(e)
                         logger.info(
-                            'rejecting request because of a semantically invalid'
-                            ' Elasticsearch API call' + (m and ': ' + m)
+                            '{uniqprefix} rejecting request because of a semantically invalid'
+                            ' Elasticsearch API call{0}'.format(m and ': ' + m, uniqprefix=uniq_prefix)
                         )
                         start_response('422 Unprocessable Entity', [('Content-Type', 'text/plain')])
                         return 'Semantically invalid Elasticsearch API call' + (m and ': ' + m),
@@ -357,8 +370,10 @@ def app(environ, start_response):
                         jhp = util_json.JSONHighlightPart(e.whole)
 
                         logger.info(
-                            'rejecting request because of a semantically invalid (or not analyzable) '
-                            'Elasticsearch API call: {0} {1}'.format(jhp.render_flat(e.target), problem)
+                            '{uniqprefix} rejecting request because of a semantically invalid (or not analyzable) '
+                            'Elasticsearch API call: {0} {1}'.format(
+                                jhp.render_flat(e.target), problem, uniqprefix=uniq_prefix
+                            )
                         )
                         start_response('422 Unprocessable Entity', [('Content-Type', 'text/plain')])
                         return 'Semantically invalid Elasticsearch API call or not analyzable:\n{0}\n\n{1}'.format(
@@ -366,7 +381,9 @@ def app(environ, start_response):
                         ),
                     except InvalidJSON as e:
                         m = repr(str(e))
-                        logger.info('rejecting request because of malformed JSON: ' + m)
+                        logger.info('{uniqprefix} rejecting request because of malformed JSON: {0}'.format(
+                            m, uniqprefix=uniq_prefix
+                        ))
                         start_response('400 Bad Request', [('Content-Type', 'text/plain')])
                         return 'Invalid JSON: ' + m,
 
@@ -393,12 +410,13 @@ def app(environ, start_response):
                     ))
 
                     logger.info(
-                        'rejecting non-anonymous request because {0} access'
+                        '{uniqprefix} rejecting non-anonymous request because {0} access'
                         ' the following requested indices: {1}'.format(
                             'neither the user {0!r} nor their LDAP groups ({1}) may'.format(
                                 user, ', '.join(itertools.imap(repr, ldap_groups))
                             ) if ldap_groups else 'the user {0!r} may not'.format(user),
-                            ', '.join(deny_idxs)
+                            ', '.join(deny_idxs),
+                            uniqprefix=uniq_prefix
                         )
                     )
                     start_response('403 Forbidden', [('Content-Type', 'text/plain')])
@@ -422,10 +440,12 @@ def app(environ, start_response):
 
                     if read_only:
                         logger.info(
-                            'Rejecting non-anonymous request because {0} has only read access'.format(
+                            '{uniqprefix} Rejecting non-anonymous request because {0} has only read access'.format(
                                 'either the user {0} or one of their LDAP groups ({1})'.format(
                                     user, ', '.join(itertools.imap(repr, ldap_groups)))
-                                if ldap_groups else 'the user {0}'.format(user)))
+                                if ldap_groups else 'the user {0}'.format(user),
+                                uniqprefix=uniq_prefix
+                            ))
                         start_response('403 Forbidden', [('Content-Type', 'text/plain')])
                         return ('You are not permitted to perform any other action than GET or _mget',)
 
@@ -452,9 +472,10 @@ def app(environ, start_response):
         start_response('{0} {1}'.format(status, reason), headers)
         return content,
     except:
-        logger.error('an instance of {0} has been thrown while handling a request; traceback: {1}'.format(
+        logger.error('{uniqprefix} an instance of {0} has been thrown while handling a request; traceback: {1}'.format(
             sys.exc_info()[0].__name__,
-            repr(traceback.format_exc())
+            repr(traceback.format_exc()),
+            uniqprefix=uniq_prefix
         ))
         start_response('500 Internal Server Error', [('Content-Type', 'text/plain')])
         return ()
