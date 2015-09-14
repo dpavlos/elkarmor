@@ -58,3 +58,17 @@ bind_pw = <bind-pw>     ; Optional
 group_base_dn = <dn>    ; The DN where to look for groups
 user_base_dn = <dn>     ; The DN where to look for users
 ````
+
+=== Utilizing a Encrypted Connection
+
+To establish a encrypted connection to the server the `ldaps` protocol
+identifier can be used in the URL. The given port defines whether to use SSL
+or STARTTLS. (636 == SSL, 389 == STARTTLS)
+
+Example for a SSL encrypted connection:
+
+````
+[ldap]
+url = "ldaps://localhost:636"
+...
+````
