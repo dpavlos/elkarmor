@@ -59,6 +59,10 @@ class AssertJSONTypeFailure(ELKProxyAppInternalException):
         self.json_types = json_types
 
 
+class NoChkIndices(ELKProxyAppInternalException):
+    pass
+
+
 def requested_indices(iterable):
     """
     Yield only indices which don't start with a `-', without a leading `+'
@@ -117,6 +121,8 @@ def app(environ, start_response):
     )
 
     try:
+        method = environ['REQUEST_METHOD']
+
         # Deny absolute URLs
 
         path_info = environ.get('PATH_INFO', '') or '/'
@@ -135,6 +141,12 @@ def app(environ, start_response):
         req_headers = dict(((
             k[5:].lower().replace('_', '-'), v
         ) for (k, v) in environ.iteritems() if k.startswith('HTTP_')))
+
+        logger.debug('{uniqprefix} processing request with URL {0!r}{1}'.format(
+            url, ' and the following headers: {0!r}'.format(''.join((
+                '{0}: {1}\n'.format(*req_header) for req_header in req_headers.iteritems()
+            ))) if req_headers else '', uniqprefix=uniq_prefix
+        ))
 
         # Get username
 
@@ -181,11 +193,22 @@ def app(environ, start_response):
 
         body = environ['wsgi.input'].read(clen) if clen else ''
 
-        if not (user is None or any((
-            rgx.search(url[1:]) for rgx in frozenset(itertools.chain(
-                elkenv['permitted_urls']['users'].get(user, ()), elkenv['unrestricted_urls']
+        try:
+            if user is None:
+                logger.debug(
+                    '{uniqprefix} the anonymous request was initiated by Kibana'.format(uniqprefix=uniq_prefix)
+                )
+                raise NoChkIndices('the request is anonymous')
+
+            logger.debug('{uniqprefix} the non-anonymous request was initiated by user {0!r}'.format(
+                user, uniqprefix=uniq_prefix
             ))
-        ))):
+
+            if any((rgx.search(url[1:]) for rgx in frozenset(itertools.chain(
+                elkenv['permitted_urls']['users'].get(user, ()), elkenv['unrestricted_urls']
+            )))):
+                raise NoChkIndices('the requested URL may be accessed by the user')
+
             # Get the user's groups
 
             ldap_backend = elkenv['ldap_backend']
@@ -206,255 +229,264 @@ def app(environ, start_response):
             finally:
                 ldap_backend.unbind()
 
-            if not any((
-                rgx.search(url[1:]) for rgx in frozenset((
-                    pattern for group in ldap_groups for pattern in elkenv['permitted_urls']['group'].get(group, [])
+            tried_patterns = set()
+
+            for group in ldap_groups:
+                current_patterns = frozenset(elkenv['permitted_urls']['group'].get(group, [])) - tried_patterns
+                if current_patterns:
+                    if any((rgx.search(url[1:]) for rgx in current_patterns)):
+                        raise NoChkIndices(
+                            'the user is a member of the group {0!r} which may access the requested URL'.format(group)
+                        )
+
+                    tried_patterns.update(current_patterns)
+        except NoChkIndices as e:
+            logger.debug('{uniqprefix} not checking for requested indices as {0!s}'.format(e, uniqprefix=uniq_prefix))
+        else:
+            # Determine API and requested indices
+
+            api = ''
+            req_idxs = None
+            for path_part in ifilter_bool(path_info[1:].split('/')):
+                if path_part.startswith('__'):
+                    # TODO: Consider this a quickfix. I do not know what
+                    # such a thing (__kibanaQueryValidator) actually means
+                    # but I guess the double underscore means it is a
+                    # custom function/method or the like
+                    continue
+
+                _all = path_part == '_all'
+                underscore = path_part.startswith('_')
+                if req_idxs is None:
+                    req_idxs = (_all or not underscore or ',' in path_part) and path_part
+                if underscore and not _all:
+                    api = path_part[1:]
+                    break
+
+            if req_idxs:
+                req_idxs = (
+                    SimplePattern(req_idxs, literal=True),
+                ) if api in ('mget', 'bulk') else (
+                    SimplePattern('*'),
+                ) if req_idxs == '_all' else tuple(itertools.imap(
+                    SimplePattern, ifilter_bool(requested_indices(req_idxs.split(',')))
                 ))
-            )):
-                # Determine API and requested indices
 
-                api = ''
-                req_idxs = None
-                for path_part in ifilter_bool(path_info[1:].split('/')):
-                    if path_part.startswith('__'):
-                        # TODO: Consider this a quickfix. I do not know what
-                        # such a thing (__kibanaQueryValidator) actually means
-                        # but I guess the double underscore means it is a
-                        # custom function/method or the like
-                        continue
+            msearch_mget_bulk = api in ('msearch', 'mget', 'bulk')
+            if not req_idxs:
+                req_idxs = () if msearch_mget_bulk else (SimplePattern('*'),)
 
-                    _all = path_part == '_all'
-                    underscore = path_part.startswith('_')
-                    if req_idxs is None:
-                        req_idxs = (_all or not underscore or ',' in path_part) and path_part
-                    if underscore and not _all:
-                        api = path_part[1:]
-                        break
+            if msearch_mget_bulk:
+                # Determine indices requested by JSON body
 
-                if req_idxs:
-                    req_idxs = (
-                        SimplePattern(req_idxs, literal=True),
-                    ) if api in ('mget', 'bulk') else (
-                        SimplePattern('*'),
-                    ) if req_idxs == '_all' else tuple(itertools.imap(
-                        SimplePattern, ifilter_bool(requested_indices(req_idxs.split(',')))
-                    ))
+                body_idxs = []
 
-                msearch_mget_bulk = api in ('msearch', 'mget', 'bulk')
-                if not req_idxs:
-                    req_idxs = () if msearch_mget_bulk else (SimplePattern('*'),)
+                try:
+                    if api == 'mget':
+                        body_json = parse_json(body.strip(), dict)
+                        noidx = False
 
-                if msearch_mget_bulk:
-                    # Determine indices requested by JSON body
+                        for idx in (
+                            assert_json_type(body_json, doc, dict).get(
+                                util_json.ScalarWrapper('_index')
+                            ) for doc in assert_json_type(
+                                body_json,
+                                body_json.get_wrapped().get(
+                                    util_json.ScalarWrapper('docs'), util_json.ScalarWrapper([])
+                                ),
+                                list
+                            )
+                        ):
+                            if idx is None:
+                                noidx = True
+                            else:
+                                body_idxs.append(SimplePattern(assert_json_type(body_json, idx, str), literal=True))
 
-                    body_idxs = []
+                        if not req_idxs and (noidx or assert_json_type(body_json, body_json.get_wrapped().get(
+                            util_json.ScalarWrapper('ids'), util_json.ScalarWrapper([])
+                        ), list)):
+                            raise InvalidAPICall('no index given for some documents to fetch')
+                    else:
+                        sio = StringIO(body)
+                        try:
+                            body_json = (parse_json(l, dict) for l in (
+                                (l or '{}' for l in istrip((
+                                    l for (l, b) in itertools.izip(sio, itertools.cycle((True, False))) if b
+                                ))) if api == 'msearch' else istrip(sio)
+                            ))
 
-                    try:
-                        if api == 'mget':
-                            body_json = parse_json(body.strip(), dict)
-                            noidx = False
-
-                            for idx in (
-                                assert_json_type(body_json, doc, dict).get(
-                                    util_json.ScalarWrapper('_index')
-                                ) for doc in assert_json_type(
-                                    body_json,
-                                    body_json.get_wrapped().get(
-                                        util_json.ScalarWrapper('docs'), util_json.ScalarWrapper([])
-                                    ),
-                                    list
-                                )
-                            ):
-                                if idx is None:
-                                    noidx = True
-                                else:
-                                    body_idxs.append(SimplePattern(assert_json_type(body_json, idx, str), literal=True))
-
-                            if not req_idxs and (noidx or assert_json_type(body_json, body_json.get_wrapped().get(
-                                util_json.ScalarWrapper('ids'), util_json.ScalarWrapper([])
-                            ), list)):
-                                raise InvalidAPICall('no index given for some documents to fetch')
-                        else:
-                            sio = StringIO(body)
-                            try:
-                                body_json = (parse_json(l, dict) for l in (
-                                    (l or '{}' for l in istrip((
-                                        l for (l, b) in itertools.izip(sio, itertools.cycle((True, False))) if b
-                                    ))) if api == 'msearch' else istrip(sio)
-                                ))
-
-                                if api == 'msearch':
-                                    try:
-                                        for j in body_json:
-                                            u = j.get_wrapped()
-                                            for idxs in (
-                                                assert_json_type(j, u[k], str, unicode, list) for k in itertools.imap(
-                                                    util_json.ScalarWrapper, ('index', 'indices')
-                                                ) if k in u
-                                            ):
-                                                idxs = tuple((
-                                                    assert_json_type(j, idx, str, unicode) for idx in idxs
-                                                )) if isinstance(idxs, list) else idxs.split(',')
-
-                                                idxs = frozenset(itertools.imap(
-                                                    normalize_pattern, ifilter_bool(requested_indices(idxs))
-                                                ))
-                                                if not (idxs or req_idxs) or idxs & frozenset(('*', '_all')):
-                                                    raise RequestedAsterisk()
-
-                                                body_idxs.extend(itertools.imap(SimplePattern, idxs))
-                                    except RequestedAsterisk:
-                                        body_idxs = (SimplePattern('*'),)
-                                else:  # api == 'bulk'
-                                    actions = ('index', 'create', 'delete', 'update')
-                                    actions_source = ('index', 'create')
-                                    skip = False
-
+                            if api == 'msearch':
+                                try:
                                     for j in body_json:
-                                        if skip:
-                                            skip = False
-                                            continue
-
                                         u = j.get_wrapped()
-                                        l = len(u)
-                                        if l != 1:
-                                            raise InvalidAPICall(
-                                                'invalid operation: {0}'
-                                                ' (must contain exactly one action -- {1} given)'.format(
-                                                    json.dumps(util_json.ScalarWrapper.unwrap_recursive(j)), l
-                                                )
-                                            )
+                                        for idxs in (
+                                            assert_json_type(j, u[k], str, unicode, list) for k in itertools.imap(
+                                                util_json.ScalarWrapper, ('index', 'indices')
+                                            ) if k in u
+                                        ):
+                                            idxs = tuple((
+                                                assert_json_type(j, idx, str, unicode) for idx in idxs
+                                            )) if isinstance(idxs, list) else idxs.split(',')
 
-                                        action, meta_data = u.items()[0]
-                                        action = action.get_wrapped()
-                                        idx = assert_json_type(j, meta_data, dict).get(
-                                            util_json.ScalarWrapper('_index')
+                                            idxs = frozenset(itertools.imap(
+                                                normalize_pattern, ifilter_bool(requested_indices(idxs))
+                                            ))
+                                            if not (idxs or req_idxs) or idxs & frozenset(('*', '_all')):
+                                                raise RequestedAsterisk()
+
+                                            body_idxs.extend(itertools.imap(SimplePattern, idxs))
+                                except RequestedAsterisk:
+                                    body_idxs = (SimplePattern('*'),)
+                            else:  # api == 'bulk'
+                                actions = ('index', 'create', 'delete', 'update')
+                                actions_source = ('index', 'create')
+                                skip = False
+
+                                for j in body_json:
+                                    if skip:
+                                        skip = False
+                                        continue
+
+                                    u = j.get_wrapped()
+                                    l = len(u)
+                                    if l != 1:
+                                        raise InvalidAPICall(
+                                            'invalid operation: {0}'
+                                            ' (must contain exactly one action -- {1} given)'.format(
+                                                json.dumps(util_json.ScalarWrapper.unwrap_recursive(j)), l
+                                            )
                                         )
 
-                                        if action not in actions:
+                                    action, meta_data = u.items()[0]
+                                    action = action.get_wrapped()
+                                    idx = assert_json_type(j, meta_data, dict).get(
+                                        util_json.ScalarWrapper('_index')
+                                    )
+
+                                    if action not in actions:
+                                        raise InvalidAPICall(
+                                            'invalid action: {0} (must be one of the following: {1})'.format(
+                                                json.dumps(action), ', '.join(actions)
+                                            )
+                                        )
+
+                                    if idx is None:
+                                        if not req_idxs:
                                             raise InvalidAPICall(
-                                                'invalid action: {0} (must be one of the following: {1})'.format(
-                                                    json.dumps(action), ', '.join(actions)
+                                                'invalid operation: {0} (no index given)'.format(
+                                                    json.dumps(util_json.ScalarWrapper.unwrap_recursive(j))
                                                 )
                                             )
+                                    else:
+                                        body_idxs.append(SimplePattern(
+                                            assert_json_type(j, idx, str, unicode), literal=True
+                                        ))
 
-                                        if idx is None:
-                                            if not req_idxs:
-                                                raise InvalidAPICall(
-                                                    'invalid operation: {0} (no index given)'.format(
-                                                        json.dumps(util_json.ScalarWrapper.unwrap_recursive(j))
-                                                    )
-                                                )
-                                        else:
-                                            body_idxs.append(SimplePattern(
-                                                assert_json_type(j, idx, str, unicode), literal=True
-                                            ))
-
-                                        if action in actions_source:
-                                            skip = True
-                            finally:
-                                sio.close()
-                    except InvalidAPICall as e:
-                        m = str(e)
-                        logger.info(
-                            '{uniqprefix} rejecting request because of a semantically invalid'
-                            ' Elasticsearch API call{0}'.format(m and ': ' + m, uniqprefix=uniq_prefix)
-                        )
-                        start_response('422 Unprocessable Entity', [('Content-Type', 'text/plain')])
-                        return 'Semantically invalid Elasticsearch API call' + (m and ': ' + m),
-                    except AssertJSONTypeFailure as e:
-                        problem = 'unexpected JSON {0}, expected one of: {1}'.format(
-                            json_ts[type(e.target.get_wrapped())],
-                            ', '.join(frozenset((json_ts[json_t] for json_t in e.json_types)))
-                        )
-                        jhp = util_json.JSONHighlightPart(e.whole)
-
-                        logger.info(
-                            '{uniqprefix} rejecting request because of a semantically invalid (or not analyzable) '
-                            'Elasticsearch API call: {0} {1}'.format(
-                                jhp.render_flat(e.target), problem, uniqprefix=uniq_prefix
-                            )
-                        )
-                        start_response('422 Unprocessable Entity', [('Content-Type', 'text/plain')])
-                        return 'Semantically invalid Elasticsearch API call or not analyzable:\n{0}\n\n{1}'.format(
-                            problem, jhp.render_2d(e.target)
-                        ),
-                    except InvalidJSON as e:
-                        m = repr(str(e))
-                        logger.info('{uniqprefix} rejecting request because of malformed JSON: {0}'.format(
-                            m, uniqprefix=uniq_prefix
-                        ))
-                        start_response('400 Bad Request', [('Content-Type', 'text/plain')])
-                        return 'Invalid JSON: ' + m,
-
-                    req_idxs = itertools.chain(req_idxs, body_idxs)
-
-                # Collect allowed indices
-
-                groups = elkenv['restrictions']['group']
-                allow_idxs = tuple(SimplePattern.without_subsets(itertools.chain.from_iterable((
-                    itertools.chain.from_iterable(perms.itervalues()) for perms in itertools.chain(
-                        (elkenv['restrictions']['users'].get(user, {}), elkenv['unrestricted_idxs']),
-                        (groups.get(group, {}) for group in ldap_groups)
+                                    if action in actions_source:
+                                        skip = True
+                        finally:
+                            sio.close()
+                except InvalidAPICall as e:
+                    m = str(e)
+                    logger.info(
+                        '{uniqprefix} rejecting request because of a semantically invalid'
+                        ' Elasticsearch API call{0}'.format(m and ': ' + m, uniqprefix=uniq_prefix)
                     )
-                ))))
-
-                # Compare requested indices with allowed ones
-
-                deny_idxs = tuple((req_idx for req_idx in SimplePattern.without_subsets(req_idxs) if not any((
-                    allow_idx.superset(req_idx) for allow_idx in allow_idxs
-                ))))
-                if deny_idxs:
-                    deny_idxs = tuple((
-                        '{0!r} ({1})'.format(str(idx), 'literal' if idx.literal else 'pattern') for idx in deny_idxs
-                    ))
+                    start_response('422 Unprocessable Entity', [('Content-Type', 'text/plain')])
+                    return 'Semantically invalid Elasticsearch API call' + (m and ': ' + m),
+                except AssertJSONTypeFailure as e:
+                    problem = 'unexpected JSON {0}, expected one of: {1}'.format(
+                        json_ts[type(e.target.get_wrapped())],
+                        ', '.join(frozenset((json_ts[json_t] for json_t in e.json_types)))
+                    )
+                    jhp = util_json.JSONHighlightPart(e.whole)
 
                     logger.info(
-                        '{uniqprefix} rejecting non-anonymous request because {0} access'
-                        ' the following requested indices: {1}'.format(
-                            'neither the user {0!r} nor their LDAP groups ({1}) may'.format(
-                                user, ', '.join(itertools.imap(repr, ldap_groups))
-                            ) if ldap_groups else 'the user {0!r} may not'.format(user),
-                            ', '.join(deny_idxs),
-                            uniqprefix=uniq_prefix
+                        '{uniqprefix} rejecting request because of a semantically invalid (or not analyzable) '
+                        'Elasticsearch API call: {0} {1}'.format(
+                            jhp.render_flat(e.target), problem, uniqprefix=uniq_prefix
                         )
                     )
-                    start_response('403 Forbidden', [('Content-Type', 'text/plain')])
-                    return 'You may not access the following requested indices:\n ' + '\n '.join(deny_idxs),
+                    start_response('422 Unprocessable Entity', [('Content-Type', 'text/plain')])
+                    return 'Semantically invalid Elasticsearch API call or not analyzable:\n{0}\n\n{1}'.format(
+                        problem, jhp.render_2d(e.target)
+                    ),
+                except InvalidJSON as e:
+                    m = repr(str(e))
+                    logger.info('{uniqprefix} rejecting request because of malformed JSON: {0}'.format(
+                        m, uniqprefix=uniq_prefix
+                    ))
+                    start_response('400 Bad Request', [('Content-Type', 'text/plain')])
+                    return 'Invalid JSON: ' + m,
 
-                if environ['REQUEST_METHOD'].lower() not in 'get head' and api and api not in 'mget search msearch validate count explain':
-                    read_only = False
-                    if user in elkenv['restrictions']['users'] and 'read' in elkenv['restrictions']['users'][user]:
+                req_idxs = itertools.chain(req_idxs, body_idxs)
+
+            # Collect allowed indices
+
+            groups = elkenv['restrictions']['group']
+            allow_idxs = tuple(SimplePattern.without_subsets(itertools.chain.from_iterable((
+                itertools.chain.from_iterable(perms.itervalues()) for perms in itertools.chain(
+                    (elkenv['restrictions']['users'].get(user, {}), elkenv['unrestricted_idxs']),
+                    (groups.get(group, {}) for group in ldap_groups)
+                )
+            ))))
+
+            # Compare requested indices with allowed ones
+
+            deny_idxs = tuple((req_idx for req_idx in SimplePattern.without_subsets(req_idxs) if not any((
+                allow_idx.superset(req_idx) for allow_idx in allow_idxs
+            ))))
+            if deny_idxs:
+                deny_idxs = tuple((
+                    '{0!r} ({1})'.format(str(idx), 'literal' if idx.literal else 'pattern') for idx in deny_idxs
+                ))
+
+                logger.info(
+                    '{uniqprefix} rejecting non-anonymous request because {0} access'
+                    ' the following requested indices: {1}'.format(
+                        'neither the user {0!r} nor their LDAP groups ({1}) may'.format(
+                            user, ', '.join(itertools.imap(repr, ldap_groups))
+                        ) if ldap_groups else 'the user {0!r} may not'.format(user),
+                        ', '.join(deny_idxs),
+                        uniqprefix=uniq_prefix
+                    )
+                )
+                start_response('403 Forbidden', [('Content-Type', 'text/plain')])
+                return 'You may not access the following requested indices:\n ' + '\n '.join(deny_idxs),
+
+            if environ['REQUEST_METHOD'].lower() not in 'get head' and api and api not in 'mget search msearch validate count explain':
+                read_only = False
+                if user in elkenv['restrictions']['users'] and 'read' in elkenv['restrictions']['users'][user]:
+                    for index in SimplePattern.without_subsets(req_idxs):
+                        if index in elkenv['restrictions']['users'][user]['read']:
+                            read_only = True
+                            break
+
+                if not read_only and ldap_groups:
+                    for group_dn in ldap_groups:
                         for index in SimplePattern.without_subsets(req_idxs):
-                            if index in elkenv['restrictions']['users'][user]['read']:
-                                read_only = True
-                                break
+                            if group_dn in elkenv['restrictions']['group'] and 'read' in elkenv['restrictions']['group'][group_dn]:
+                                if index in elkenv['restriction']['group'][group_dn]['read']:
+                                    read_only = True
+                                    break
 
-                    if not read_only and ldap_groups:
-                        for group_dn in ldap_groups:
-                            for index in SimplePattern.without_subsets(req_idxs):
-                                if group_dn in elkenv['restrictions']['group'] and 'read' in elkenv['restrictions']['group'][group_dn]:
-                                    if index in elkenv['restriction']['group'][group_dn]['read']:
-                                        read_only = True
-                                        break
-
-                    if read_only:
-                        logger.info(
-                            '{uniqprefix} Rejecting non-anonymous request because {0} has only read access'.format(
-                                'either the user {0} or one of their LDAP groups ({1})'.format(
-                                    user, ', '.join(itertools.imap(repr, ldap_groups)))
-                                if ldap_groups else 'the user {0}'.format(user),
-                                uniqprefix=uniq_prefix
-                            ))
-                        start_response('403 Forbidden', [('Content-Type', 'text/plain')])
-                        return ('You are not permitted to perform any other action than GET or _mget',)
+                if read_only:
+                    logger.info(
+                        '{uniqprefix} Rejecting non-anonymous request because {0} has only read access'.format(
+                            'either the user {0} or one of their LDAP groups ({1})'.format(
+                                user, ', '.join(itertools.imap(repr, ldap_groups)))
+                            if ldap_groups else 'the user {0}'.format(user),
+                            uniqprefix=uniq_prefix
+                        ))
+                    start_response('403 Forbidden', [('Content-Type', 'text/plain')])
+                    return ('You are not permitted to perform any other action than GET or _mget',)
 
         # Forward request
 
         conn = elkenv['connector']()
 
         conn.request(
-            environ['REQUEST_METHOD'],
+            method,
             url,
             body,
             req_headers
