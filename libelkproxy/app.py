@@ -281,6 +281,13 @@ def app(environ, start_response):
                 req_idxs = () if msearch_mget_bulk else (SimplePattern('*'),)
 
             if msearch_mget_bulk:
+                logger.debug(
+                    "{uniqprefix} Checking request body for indices as the requested API is {0!r}."
+                    " Indices requested by URL: {1}".format(api, ', '.join(
+                        itertools.imap(describe_pattern, req_idxs)
+                    ) if req_idxs else 'none', uniqprefix=uniq_prefix)
+                )
+
                 # Determine indices requested by JSON body
 
                 body_idxs = []
@@ -423,7 +430,21 @@ def app(environ, start_response):
                     start_response('400 Bad Request', [('Content-Type', 'text/plain')])
                     return 'Invalid JSON: ' + m,
 
+                logger.debug(
+                    "{uniqprefix} Indices requested by request body: {0}".format(', '.join(
+                        itertools.imap(describe_pattern, req_idxs)
+                    ) if req_idxs else 'none', uniqprefix=uniq_prefix)
+                )
+
                 req_idxs = itertools.chain(req_idxs, body_idxs)
+            else:
+                logger.debug(
+                    "{uniqprefix} Not checking request body for indices"
+                    " as the requested API {0!r} is neither 'msearch' nor 'mget' nor 'bulk'."
+                    " Indices requested by URL: {1}".format(api, ', '.join(
+                        itertools.imap(describe_pattern, req_idxs)
+                    ) if req_idxs else 'none', uniqprefix=uniq_prefix)
+                )
 
             # Collect allowed indices
 
@@ -434,6 +455,10 @@ def app(environ, start_response):
                     (groups.get(group, {}) for group in ldap_groups)
                 )
             ))))
+
+            logger.debug('{uniqprefix} comparing requested indices with allowed ones ({0})'.format(
+                ', '.join(itertools.imap(describe_pattern, allow_idxs)) if allow_idxs else 'none'
+            ))
 
             # Compare requested indices with allowed ones
 
