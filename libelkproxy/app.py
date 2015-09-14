@@ -203,17 +203,6 @@ def app(environ, start_response):
                         api = path_part[1:]
                         break
 
-                if ((
-                    user in elkenv['read_only_subjects']['users'] or ldap_groups & elkenv['read_only_subjects']['group']
-                ) and ((api and api != 'mget') or environ['REQUEST_METHOD'].lower() != 'get')):
-                    logger.info(
-                        'Rejecting non-anonymous request because {0} has only read access'.format(
-                            'either the user {0} or one of their LDAP groups ({1})'.format(
-                                user, ', '.join(itertools.imap(repr, ldap_groups)))
-                            if ldap_groups else 'the user {0}'.format(user)))
-                    start_response('403 Forbidden', [('Content-Type', 'text/plain')])
-                    return ('You are not permitted to perform any other action than GET or _mget',)
-
                 if req_idxs:
                     req_idxs = (
                         SimplePattern(req_idxs, literal=True),
@@ -399,6 +388,31 @@ def app(environ, start_response):
                     )
                     start_response('403 Forbidden', [('Content-Type', 'text/plain')])
                     return 'You may not access the following requested indices:\n ' + '\n '.join(deny_idxs),
+
+                if (api and api == 'mget') or environ['REQUEST_METHOD'].lower() == 'get':
+                    read_only = False
+                    if user in elkenv['restrictions']['users'] and 'read' in elkenv['restrictions']['users'][user]:
+                        for index in SimplePattern.without_subsets(req_idxs):
+                            if index in elkenv['restrictions']['users'][user]['read']:
+                                read_only = True
+                                break
+
+                    if not read_only and ldap_groups:
+                        for group_dn in ldap_groups:
+                            for index in SimplePattern.without_subsets(req_idxs):
+                                if group_dn in elkenv['restrictions']['group'] and 'read' in elkenv['restrictions']['group'][group_dn]:
+                                    if index in elkenv['restriction']['group'][group_dn]['read']:
+                                        read_only = True
+                                        break
+
+                    if read_only:
+                        logger.info(
+                            'Rejecting non-anonymous request because {0} has only read access'.format(
+                                'either the user {0} or one of their LDAP groups ({1})'.format(
+                                    user, ', '.join(itertools.imap(repr, ldap_groups)))
+                                if ldap_groups else 'the user {0}'.format(user)))
+                        start_response('403 Forbidden', [('Content-Type', 'text/plain')])
+                        return ('You are not permitted to perform any other action than GET or _mget',)
 
         # Forward request
 
