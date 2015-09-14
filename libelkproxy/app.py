@@ -199,6 +199,13 @@ def app(environ, start_response):
                 api = ''
                 req_idxs = None
                 for path_part in ifilter_bool(path_info[1:].split('/')):
+                    if path_part.startswith('__'):
+                        # TODO: Consider this a quickfix. I do not know what
+                        # such a thing (__kibanaQueryValidator) actually means
+                        # but I guess the double underscore means it is a
+                        # custom function/method or the like
+                        continue
+
                     _all = path_part == '_all'
                     underscore = path_part.startswith('_')
                     if req_idxs is None:
