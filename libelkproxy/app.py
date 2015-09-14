@@ -179,11 +179,15 @@ def app(environ, start_response):
 
             ldap_backend = elkenv['ldap_backend']
             try:
+                ldap_backend.bind()
                 ldap_groups = ldap_backend.get_group_memberships(user)
             except LDAPError as error:
-                logger.info('Rejecting non-anonymous request. Reason: ' + error.args[0]['desc'])
+                message = error.args[0]['desc'] if error.args[0] is dict else error.args[0]
+                logger.info('Rejecting non-anonymous request. Reason: ' + message)
                 start_response('403 Forbidden', [('Content-Type', 'text/plain')])
                 return ()
+            finally:
+                ldap_backend.unbind()
 
             if not any((
                 rgx.search(url[1:]) for rgx in frozenset((

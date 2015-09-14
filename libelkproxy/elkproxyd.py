@@ -108,6 +108,7 @@ class LDAPBackend(object):
     def unbind(self):
         if self._bound:
             self.connection.unbind()
+            self._connection = None
             self._bound = False
 
     def search(self, base_dn, search_filter, attributes = None):
@@ -413,8 +414,6 @@ class ELKProxyDaemon(UnixDaemon):
         for t in self._threads:
             t.join()
         logging.shutdown()
-        if 'ldap_backend' in self._elkenv:
-            self._elkenv['ldap_backend'].unbind()
         super(ELKProxyDaemon, self).cleanup()
 
     def _parse_restrictions(self, cfg_restrictions):
@@ -544,7 +543,6 @@ class ELKProxyDaemon(UnixDaemon):
                 sslargs[x] = sslargs[y]
 
         ldap_backend = LDAPBackend(**self._cfg['ldap'])
-        ldap_backend.bind()
 
         self._elkenv['connector'] = http_connector
         self._elkenv['ldap_backend'] = ldap_backend
