@@ -182,7 +182,11 @@ def app(environ, start_response):
                 ldap_backend.bind()
                 ldap_groups = ldap_backend.get_group_memberships(user)
             except LDAPError as error:
-                message = error.args[0]['desc'] if error.args[0] is dict else error.args[0]
+                try:
+                    message = error.args[0]['desc']
+                except TypeError:
+                    message = error.args[0]
+
                 logger.info('Rejecting non-anonymous request. Reason: ' + message)
                 start_response('403 Forbidden', [('Content-Type', 'text/plain')])
                 return ()
