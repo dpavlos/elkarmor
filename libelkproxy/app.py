@@ -108,6 +108,10 @@ def assert_json_type(whole_wrapped, target_wrapped, json_type, *json_types):
     raise AssertJSONTypeFailure(whole_wrapped, target_wrapped, json_types)
 
 
+def describe_pattern(pattern):
+    return '{0!r} ({1})'.format(str(pattern), 'literal' if pattern.literal else 'pattern')
+
+
 http_basic_auth_header = re.compile(r'Basic\s+(\S*)(?!.)', re.I)
 
 
@@ -437,9 +441,7 @@ def app(environ, start_response):
                 allow_idx.superset(req_idx) for allow_idx in allow_idxs
             ))))
             if deny_idxs:
-                deny_idxs = tuple((
-                    '{0!r} ({1})'.format(str(idx), 'literal' if idx.literal else 'pattern') for idx in deny_idxs
-                ))
+                deny_idxs = tuple(itertools.imap(describe_pattern, deny_idxs))
 
                 logger.info(
                     '{uniqprefix} rejecting non-anonymous request because {0} access'
