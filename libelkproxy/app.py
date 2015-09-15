@@ -517,6 +517,8 @@ def app(environ, start_response):
 
         conn = elkenv['connector']()
 
+        logger.debug('{uniqprefix} forwarding request to Elasticsearch'.format(uniqprefix=uniq_prefix))
+
         conn.request(
             method,
             url,
@@ -532,6 +534,15 @@ def app(environ, start_response):
         reason = response.reason
         headers = response.getheaders()
         content = response.read()
+
+        logger.debug('{uniqprefix} forwarding response from Elasticsearch with status {0} {1!r}{2}'.format(
+            status,
+            reason,
+            ' and the following headers: {0!r}'.format(''.join((
+                '{0}: {1}\n'.format(*header) for header in headers
+            ))) if headers else '',
+            uniqprefix=uniq_prefix
+        ))
 
         start_response('{0} {1}'.format(status, reason), headers)
         return content,
