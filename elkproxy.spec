@@ -1,25 +1,32 @@
 %{!?__python2: %global __python2 /usr/bin/python2}
 %{!?python2_sitelib: %global python2_sitelib %(%{__python2} -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())")}
-%{!?python2_sitearch: %global python2_sitearch %(%{__python2} -c "from distutils.sysconfig import get_python_lib; print(get_python_lib(1))")}
 
-%define name elkproxy
-%define summary a transparent proxy for securing Elasticsearch
-%define version 0.0
-%define release 1%{?dist}
+%define revision 1
 
-Name: %{name}
-Summary: %{summary}
-Version: %{version}
-Release: %{release}
-Source0: %{name}-%{version}.tar.gz
-License: GPLv2+
-Group: System Environment/Daemons
-BuildRequires: python-setuptools
-BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-buildroot
-Requires: python-netifaces, python-ldap
-BuildArch: noarch
-Vendor: NETWAYS GmbH <info@netways.de>
-Url: https://project.netways.de/projects/elk-proxy
+Name:       elkproxy
+Version:    0.0
+Release:    %{revision}%{?dist}
+Summary:    Transparent proxy for securing Elasticsearch
+Group:      System Environment/Daemons
+License:    GPLv2+
+URL:        https://project.netways.de/projects/elk-proxy
+Source0:    %{name}-%{version}.tar.gz
+Vendor:     NETWAYS GmbH <info@netways.de>
+Packager:   NETWAYS GmbH <info@netways.de>
+
+BuildArch:      noarch
+BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}
+BuildRequires:  python-setuptools
+
+Requires(post):     /sbin/chkconfig
+Requires(preun):    /sbin/chkconfig
+Requires(postun):   /sbin/service
+Requires(preun):    /sbin/service
+Requires:           python-ldap
+Requires:           python-netifaces
+
+%define configdir %{_sysconfdir}/%{name}
+
 
 %description
 The ELK Proxy is a transparent HTTP proxy for securing
@@ -30,22 +37,35 @@ specific data.
 %setup -q
 
 %build
-%{__python2} setup.py build
 
 %install
-%{__python2} setup.py install -O1 --skip-build --root $RPM_BUILD_ROOT --prefix=%{_prefix}
-install -d -m 0700 ${RPM_BUILD_ROOT}/etc/elkproxyd
-install -m 0600 .puppet/files/elkproxyd.ini ${RPM_BUILD_ROOT}/etc/elkproxyd/config.ini
-install -d ${RPM_BUILD_ROOT}/etc/rc.d/init.d
-install -m 0744 .puppet/files/init.d-elkproxy ${RPM_BUILD_ROOT}/etc/rc.d/init.d/elkproxy
+%{__python2} setup.py install --prefix=%{_prefix} --root=%{buildroot}
+mkdir -p %{buildroot}%{_initddir}
+mkdir -p %{buildroot}%{configdir}
+cp elkproxy.init %{buildroot}%{_initddir}/%{name}
+cp etc/elkproxy.ini %{buildroot}%{configdir}/config.ini
+
+%post
+/sbin/chkconfig --add %{name}
+
+%preun
+if [ $1 -eq 0 ] ; then
+    /sbin/service %{name} stop >/dev/null 2>&1
+    /sbin/chkconfig --del %{name}
+fi
+
+%postun
+if [ "$1" -ge "1" ] ; then
+    /sbin/service %{name} condrestart >/dev/null 2>&1 || :
+fi
 
 %clean
-rm -rf $RPM_BUILD_ROOT
+rm -rf %{buildroot}
 
 %files
 %defattr(-,root,root)
 %doc AUTHORS COPYING
 %{python2_sitelib}
-%dir /etc/elkproxyd
-%config(noreplace) /etc/elkproxyd/config.ini
-/etc/rc.d/init.d/elkproxy
+%attr(0700,root,root) %config(noreplace) %dir %{configdir}
+%attr(0600,root,root) %config(noreplace) %{configdir}/config.ini
+%attr(0755,root,root) %{_initddir}/%name
