@@ -221,8 +221,12 @@ def app(environ, start_response):
                 ldap_groups = ldap_backend.get_group_memberships(user)
             except LDAPError as error:
                 try:
-                    message = error.args[0]['desc']
-                except TypeError:
+                    message = ''
+                    try:
+                        message = error.args[0]['info']
+                    finally:
+                        message += ' ' + error.args[0]['desc']
+                except TypeError, KeyError:
                     message = error.args[0]
 
                 logger.info('{uniqprefix} Rejecting non-anonymous request. Reason: {0}'.format(
