@@ -251,6 +251,10 @@ def app(environ, start_response):
         except NoChkIndices as e:
             logger.debug('{uniqprefix} not checking for requested indices as {0!s}'.format(e, uniqprefix=uniq_prefix))
         else:
+            logger.debug('{uniqprefix} the user is a member of the following groups: {0}'.format(
+                ', '.join(itertools.imap(repr, ldap_groups)) if ldap_groups else 'none', uniqprefix=uniq_prefix
+            ))
+
             # Determine API and requested indices
 
             api = ''
