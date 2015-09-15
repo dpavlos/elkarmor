@@ -461,7 +461,8 @@ def app(environ, start_response):
             ))))
 
             logger.debug('{uniqprefix} comparing requested indices with allowed ones ({0})'.format(
-                ', '.join(itertools.imap(describe_pattern, allow_idxs)) if allow_idxs else 'none'
+                ', '.join(itertools.imap(describe_pattern, allow_idxs)) if allow_idxs else 'none',
+                uniqprefix=uniq_prefix
             ))
 
             # Compare requested indices with allowed ones
