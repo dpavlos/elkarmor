@@ -28,6 +28,8 @@ inet = <ipv4-address-or-interface>:<port>
 ;certfile = <path-to-the-SSL-certificate>
 ````
 
+`*` may be specified instead of an interface name to listen on all interfaces.
+
 The options `keyfile` and `certfile` are only required if the option `inet-ssl`
 or `inet6-ssl` is given.
 

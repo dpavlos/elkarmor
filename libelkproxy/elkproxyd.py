@@ -269,36 +269,44 @@ class ELKProxyDaemon(UnixDaemon):
                                 ' (must be a decimal number between 0 and 65535)'.format(port, addr)
                             )
 
-                        allowIP = allowIFace = True
-                        if af == AF_INET6:
-                            m = rAddr6.match(ip)
-                            if m:
-                                ip = m.group(1)
-                                allowIFace = False
-                            else:
-                                allowIP = False
+                        if ip == '*':
+                            addrs = frozenset(((ipaddr, port) for ipaddr in itertools.chain.from_iterable((
+                                iface[af] for iface in resolve.itervalues() if af in iface
+                            ))))
 
-                        if allowIFace and ip in resolve:
-                            if af not in resolve[ip]:
+                            if not addrs:
+                                raise ELKProxyConfigNetIOError('IPv{0} is not available on any interface'.format(afn))
+                        else:
+                            allowIP = allowIFace = True
+                            if af == AF_INET6:
+                                m = rAddr6.match(ip)
+                                if m:
+                                    ip = m.group(1)
+                                    allowIFace = False
+                                else:
+                                    allowIP = False
+
+                            if allowIFace and ip in resolve:
+                                if af not in resolve[ip]:
+                                    raise ELKProxyConfigNetIOError(
+                                        'IPv{0} is not available on interface {1}'.format(afn, ip)
+                                    )
+
+                                ip = resolve[ip][af]
+                            elif allowIP:
+                                try:
+                                    ip = normalize_ip(af, ip)
+                                except ValueError:
+                                    raise ELKProxyConfigNetIOError("{0!r} isn't a valid IPv{1} address".format(ip, afn))
+                            else:
                                 raise ELKProxyConfigNetIOError(
-                                    'IPv{0} is not available on interface {1}'.format(afn, ip)
+                                    "{0!r} is neither a valid IPv{1} address"
+                                    " nor an existing interface's name".format(ip, afn)
                                 )
 
-                            ip = resolve[ip][af]
-                        elif allowIP:
-                            try:
-                                ip = normalize_ip(af, ip)
-                            except ValueError:
-                                raise ELKProxyConfigNetIOError("{0!r} isn't a valid IPv{1} address".format(ip, afn))
-                        else:
-                            raise ELKProxyConfigNetIOError(
-                                "{0!r} is neither a valid IPv{1} address"
-                                " nor an existing interface's name".format(ip, afn)
-                            )
-
-                        addrs = frozenset((
-                            (ipaddr, port) for ipaddr in ip
-                        )) if isinstance(ip, frozenset) else ((ip, port),)
+                            addrs = frozenset((
+                                (ipaddr, port) for ipaddr in ip
+                            )) if isinstance(ip, frozenset) else ((ip, port),)
 
                         for (ip, port) in addrs:
                             if (ip, port) in listen[af]:
@@ -561,7 +569,14 @@ class ELKProxyDaemon(UnixDaemon):
 
         for (af, listen) in self._cfg['netio']['listen'].iteritems():
             for ((host, port), ssl) in listen.iteritems():
-                s = make_server(host, port, app, server_class=server_wrapper(af, ssl))
+                try:
+                    s = make_server(host, port, app, server_class=server_wrapper(af, ssl))
+                except SocketError as e:
+                    self._logger.critical('could not listen on {0}:{1} : {2!s}'.format(
+                        '[{0}]'.format(host) if ':' in host else host, port, e)
+                    )
+                    continue
+
                 t = Thread(target=s.serve_forever)
                 t.daemon = True
                 t.start()
