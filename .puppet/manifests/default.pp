@@ -65,29 +65,29 @@ yumrepo { 'elasticsearch-1.7':
 
 # ELK Proxy
 
-file { 'elkproxyd-pid':
-  path => '/var/run/elkproxyd.pid',
+file { 'elkproxy-pid':
+  path => '/var/run/elkproxy.pid',
   ensure => file,
 }
 
-file { '/etc/elkproxyd':
+file { '/etc/elkproxy':
   ensure => directory,
 }
--> file { 'elkproxyd-cfg':
-  path => '/etc/elkproxyd/config.ini',
+-> file { 'elkproxy-cfg':
+  path => '/etc/elkproxy/config.ini',
   ensure => file,
-  source => '/vagrant/.puppet/files/elkproxyd.ini',
+  source => '/vagrant/.puppet/files/elkproxy.ini',
   replace => false,
   links => follow,
 }
 
-file { 'elkproxyd-cfg-restrictions':
-  path => '/etc/elkproxyd/restrictions.ini',
+file { 'elkproxy-cfg-restrictions':
+  path => '/etc/elkproxy/restrictions.ini',
   ensure => file,
-  source => '/vagrant/.puppet/files/elkproxyd-restrictions.ini',
+  source => '/vagrant/.puppet/files/elkproxy-restrictions.ini',
   replace => false,
   links => follow,
-  require => File['/etc/elkproxyd'],
+  require => File['/etc/elkproxy'],
 }
 
 exec { 'epel':
@@ -104,7 +104,7 @@ exec { 'epel':
   ensure => file,
   source => '/vagrant/.puppet/files/init.d-elkproxy',
   mode => '0744',
-  require => File[['elkproxyd-pid', 'elkproxyd-cfg', 'elkproxyd-cfg-restrictions']],
+  require => File[['elkproxy-pid', 'elkproxy-cfg', 'elkproxy-cfg-restrictions']],
 }
 -> service { 'elkproxy':
   ensure => running,

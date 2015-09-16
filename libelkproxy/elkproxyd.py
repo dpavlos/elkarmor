@@ -36,7 +36,7 @@ from .app import *
 
 
 DEVNULL = open(os.devnull, 'r+b')
-DEFAULT_LOGIDENT = 'elkproxyd'
+DEFAULT_LOGIDENT = 'elkproxy'
 DEFAULT_LOGLEVEL = logging.INFO
 
 log_lvl = {
