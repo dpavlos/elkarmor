@@ -116,7 +116,7 @@ def getifaddrs():
     """
     Resolve all net interfaces' IP (v4 and v6) addresses
 
-    :return: {iface: {afamily: addr}}
+    :return: {iface: {afamily: frozenset([addr...])}}
     :rtype: dict
     """
 
@@ -124,17 +124,17 @@ def getifaddrs():
         (
             iface,
             dict((
-                (
-                    af,
-                    normalize_ip(af, addr[0].split('%', 1)[0])
-                ) for (af, addr) in (
+                (af, addrs) for (af, addrs) in (
                     (
-                        netifaces_socket[af],
-                        tuple(itertools.islice((
-                            v for ainfo in ainfos for (k, v) in ainfo.iteritems() if k == 'addr'
-                        ), 0, 1))
-                    ) for (af, ainfos) in netifaces.ifaddresses(iface).iteritems() if af in netifaces_socket
-                ) if addr
+                        af,
+                        frozenset((normalize_ip(af, addr.split('%', 1)[0]) for addr in addrs))
+                    ) for (af, addrs) in (
+                        (
+                            netifaces_socket[af],
+                            (v for ainfo in ainfos for (k, v) in ainfo.iteritems() if k == 'addr')
+                        ) for (af, ainfos) in netifaces.ifaddresses(iface).iteritems() if af in netifaces_socket
+                    )
+                ) if addrs
             ))
         ) for iface in netifaces.interfaces()
     ))

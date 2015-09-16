@@ -296,13 +296,17 @@ class ELKProxyDaemon(UnixDaemon):
                                 " nor an existing interface's name".format(ip, afn)
                             )
 
-                        nAddr = (ip, port)
-                        if nAddr in listen[af]:
-                            raise ELKProxyConfigNetIOError(
-                                '{0}:{1} is configured to listen on more than once'.format(ip, port)
-                            )
+                        addrs = frozenset((
+                            (ipaddr, port) for ipaddr in ip
+                        )) if isinstance(ip, frozenset) else ((ip, port),)
 
-                        listen[af][nAddr] = bool(SSL)
+                        for (ip, port) in addrs:
+                            if (ip, port) in listen[af]:
+                                raise ELKProxyConfigNetIOError(
+                                    '{0}:{1} is configured to listen on more than once'.format(ip, port)
+                                )
+
+                            listen[af][(ip, port)] = bool(SSL)
                 if not listen[af]:
                     del listen[af]
 
