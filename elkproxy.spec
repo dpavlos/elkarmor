@@ -44,6 +44,7 @@ mkdir -p %{buildroot}%{_initddir}
 mkdir -p %{buildroot}%{configdir}
 cp elkproxy.init %{buildroot}%{_initddir}/%{name}
 cp etc/elkproxy.ini %{buildroot}%{configdir}/config.ini
+cp etc/restrictions.ini %{buildroot}%{configdir}/restrictions.ini
 
 %post
 /sbin/chkconfig --add %{name}
@@ -68,4 +69,5 @@ rm -rf %{buildroot}
 %{python2_sitelib}
 %attr(0700,root,root) %config(noreplace) %dir %{configdir}
 %attr(0600,root,root) %config(noreplace) %{configdir}/config.ini
+%attr(0600,root,root) %config(noreplace) %{configdir}/restrictions.ini
 %attr(0755,root,root) %{_initddir}/%name
