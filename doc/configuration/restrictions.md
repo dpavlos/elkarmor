@@ -64,5 +64,8 @@ An example how this might look like is provided below:
 url_foo = foo
 url_begin_bar = bar
 url_end_foobar = foo/bar
-url_full_foobar = /foo/bar/1234
+url_full_foobar = foo/bar/1234
 ````
+
+Note that the leading slash is stripped from a URL before matching
+as only relative URLs are allowed.
