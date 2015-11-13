@@ -1,4 +1,4 @@
-# ELK Proxy
+# ELK Armor
 
 ## Table of Contents
 
@@ -8,13 +8,16 @@
 
 ## About
 
-**ELK Proxy** is a transparent HTTP proxy for securing [Elasticsearch](https://www.elastic.co/) by permitting specific
-users to access only specific data.
+**ELK Armor** is a transparent HTTP proxy to be placed in front of
+[Elasticsearch](https://www.elastic.co/) for securing requests by permitting
+specific users to access only specific data.
 
 ## Installation
 
-For installing ELK Proxy please read [doc/installation.md](doc/01-installation.md).
+For installing ELK Armor please read
+[doc/installation.md](doc/01-installation.md).
 
 ## Support
 
-If you come across problems at some time, please contact [NETWAYS](mailto:info@netways.de).
+If you come across problems at some time, please feel free to create a bug on
+our [ELK Armor Project Page](https://www.netways.org/projects/elkarmor).
