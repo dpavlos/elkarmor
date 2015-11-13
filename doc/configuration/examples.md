@@ -34,8 +34,9 @@ read=logstash-*
 ## Administrating Kibana
 
 If the admin from the last example has only read access to the .kibana index,
-someone has to initialize the index first. Maybe some dashboards have to be created as well.
-Assume that there shall be a Kibana-admin who does all these things.
+someone has to initialize the index first. Maybe some dashboards have to be
+created as well. Assume that there shall be a Kibana-admin who does all these
+things.
 
 ### Granting the admin full access to Kibana
 
