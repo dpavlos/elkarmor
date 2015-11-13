@@ -9,7 +9,7 @@ It is possible to log messages to syslog or a local file. The section is called
 [log]
 type = syslog       ; "file" or "syslog"
 level = error       ; "crit", "err", "warn", "info" or "debug"
-prefix = elkproxy
+prefix = elkarmor
 ;path = /var/log/elkproxy/elkproxy.log
 ````
 
