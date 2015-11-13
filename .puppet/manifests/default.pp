@@ -102,7 +102,7 @@ exec { 'epel':
 }
 -> file { '/etc/rc.d/init.d/elkproxy':
   ensure => file,
-  source => '/vagrant/.puppet/files/init.d-elkproxy',
+  source => '/vagrant/.puppet/files/init.d-elkarmor',
   mode => '0744',
   require => File[['elkarmor-pid', 'elkproxy-cfg', 'elkproxy-cfg-restrictions']],
 }
