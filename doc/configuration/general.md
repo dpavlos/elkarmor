@@ -10,7 +10,7 @@ It is possible to log messages to syslog or a local file. The section is called
 type = syslog       ; "file" or "syslog"
 level = error       ; "crit", "err", "warn", "info" or "debug"
 prefix = elkarmor
-;path = /var/log/elkproxy/elkproxy.log
+;path = /var/log/elkarmor/elkarmor.log
 ````
 
 ## Network
