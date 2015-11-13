@@ -7,4 +7,4 @@ case "$1" in
     *) o='' ;;
     esac
 
-/usr/bin/python2 -m libelkproxy.elkproxyd -p /var/run/elkproxy.pid -c /etc/elkproxy$o "$1"
+/usr/bin/python2 -m libelkproxy.elkproxyd -p /var/run/elkarmor.pid -c /etc/elkproxy$o "$1"

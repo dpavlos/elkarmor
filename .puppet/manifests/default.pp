@@ -65,8 +65,8 @@ yumrepo { 'elasticsearch-1.7':
 
 # ELK Proxy
 
-file { 'elkproxy-pid':
-  path => '/var/run/elkproxy.pid',
+file { 'elkarmor-pid':
+  path => '/var/run/elkarmor.pid',
   ensure => file,
 }
 
@@ -104,7 +104,7 @@ exec { 'epel':
   ensure => file,
   source => '/vagrant/.puppet/files/init.d-elkproxy',
   mode => '0744',
-  require => File[['elkproxy-pid', 'elkproxy-cfg', 'elkproxy-cfg-restrictions']],
+  require => File[['elkarmor-pid', 'elkproxy-cfg', 'elkproxy-cfg-restrictions']],
 }
 -> service { 'elkproxy':
   ensure => running,
