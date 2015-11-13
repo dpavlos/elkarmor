@@ -21,9 +21,10 @@ import itertools
 import logging
 import ldap
 from errno import *
+from multiprocessing import Process
+from signal import SIGHUP
 from time import sleep
-from threading import Thread
-from wsgiref.simple_server import make_server
+from wsgiref.simple_server import WSGIRequestHandler
 from datetime import datetime, timedelta
 from ConfigParser import RawConfigParser, Error as ConfigParserError
 from .daemon import UnixDaemon, get_daemon_option_parser
@@ -174,8 +175,8 @@ class ELKArmorDaemon(UnixDaemon):
         self._cfgdir = kwargs.pop('cfgdir')
         self._cfg = {}
         self._elkenv = {}
-        self._servers = []
-        self._threads = []
+        self._processes = []
+        self._server = None
         super(ELKArmorDaemon, self).__init__(*args, **kwargs)
 
     def _load_config_file(self, filename, defaults = None):
@@ -419,10 +420,13 @@ class ELKArmorDaemon(UnixDaemon):
         return logging_cfg
 
     def cleanup(self):
-        for s in self._servers:
-            s.shutdown()
-        for t in self._threads:
-            t.join()
+        if self._server is None:
+            # We are the manager process -- terminate the server processes
+            for p in self._processes:
+                p.terminate()
+            for p in self._processes:
+                p.join()
+
         logging.shutdown()
         super(ELKArmorDaemon, self).cleanup()
 
@@ -558,42 +562,56 @@ class ELKArmorDaemon(UnixDaemon):
         self._elkenv['ldap_backend'] = ldap_backend
         self._elkenv['logger'] = self._logger
 
-        def server_wrapper(address_family, SSL):
-            return lambda *args, **kwargs: (HTTPSServer if SSL else HTTPServer)(*args, **dict(itertools.chain(
-                kwargs.iteritems(),
-                sslargs.iteritems() if SSL else (),
-                (('address_family', address_family), ('wsgi_env', {'elkarmor': self._elkenv}))
-            )))
-
         for (af, listen) in self._cfg['netio']['listen'].iteritems():
             for ((host, port), ssl) in listen.iteritems():
-                try:
-                    s = make_server(host, port, app, server_class=server_wrapper(af, ssl))
-                except SocketError as e:
-                    self._logger.critical('could not listen on {0}:{1} : {2!s}'.format(
-                        '[{0}]'.format(host) if ':' in host else host, port, e)
-                    )
-                    continue
-
-                t = Thread(target=s.serve_forever)
-                t.daemon = True
-                t.start()
-                self._servers.append(s)
-                self._threads.append(t)
+                p = Process(target=self._run_server, args=(af, host, port, ssl, sslargs))
+                p.daemon = False
+                p.start()
+                self._processes.append(p)
 
         while True:
             sleep(86400)
 
     def handle_reload(self):
+        # This has to be done in the manager process as well not to
+        # reload the server processes unnecessarily in case of failure.
         self._parse_restrictions(self._load_config_file('restrictions'))
-        new_restriction_env = {
-            'restrictions': self._elkenv['restrictions'],
-            'unrestricted_idxs': self._elkenv['unrestricted_idxs'],
-            'unrestricted_urls': self._elkenv['unrestricted_urls'],
-            'permitted_urls': self._elkenv['permitted_urls']
-        }
-        for server in self._servers:
-            server.patch_wsgi_env(new_restriction_env)
+
+        if self._server is None:
+            # We are the manager process -- reload the server processes
+            for p in self._processes:
+                try:
+                    os.kill(p.pid, SIGHUP)
+                except OSError:
+                    # If a server process has already exited because of an error,
+                    # that error should be already logged.
+                    pass
+        else:
+            # We are a server process -- apply the restrictions
+            self._server.patch_wsgi_env({
+                'restrictions': self._elkenv['restrictions'],
+                'unrestricted_idxs': self._elkenv['unrestricted_idxs'],
+                'unrestricted_urls': self._elkenv['unrestricted_urls'],
+                'permitted_urls': self._elkenv['permitted_urls']
+            })
+
+    def _run_server(self, address_family, host, port, use_ssl, sslargs):
+        # Just to be sure..
+        self._processes = []
+
+        try:
+            s = (HTTPSServer if use_ssl else HTTPServer)((host, port), WSGIRequestHandler, **dict(itertools.chain(
+                sslargs.iteritems() if use_ssl else (),
+                (('address_family', address_family), ('wsgi_env', {'elkarmor': self._elkenv}))
+            )))
+        except SocketError as e:
+            self._logger.critical('could not listen on {0}:{1} : {2!s}'.format(
+                '[{0}]'.format(host) if ':' in host else host, port, e
+            ))
+        else:
+            self._server = s
+            s.set_app(app)
+            s.serve_forever()
 
 
 def main():
