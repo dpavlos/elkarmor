@@ -114,7 +114,7 @@ http_basic_auth_header = re.compile(r'Basic\s+(\S*)(?!.)', re.I)
 
 
 def app(environ, start_response):
-    elkenv = environ['elkproxy']
+    elkenv = environ['elkarmor']
     logger = elkenv['logger']
     now = datetime.now()
     uniq_prefix = '[request {0:08x}{1:08x}]'.format(

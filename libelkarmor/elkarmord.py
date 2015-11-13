@@ -562,7 +562,7 @@ class ELKArmorDaemon(UnixDaemon):
             return lambda *args, **kwargs: (HTTPSServer if SSL else HTTPServer)(*args, **dict(itertools.chain(
                 kwargs.iteritems(),
                 sslargs.iteritems() if SSL else (),
-                (('address_family', address_family), ('wsgi_env', {'elkproxy': self._elkenv}))
+                (('address_family', address_family), ('wsgi_env', {'elkarmor': self._elkenv}))
             )))
 
         for (af, listen) in self._cfg['netio']['listen'].iteritems():

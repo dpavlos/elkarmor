@@ -15,7 +15,7 @@ prefix = elkarmor
 
 ## Network
 
-To configure how the proxy will listen for incoming requests, define a section
+To configure how ELK Armor will listen for incoming requests, define a section
 called `netio` which accepts the following options:
 
 ````
@@ -35,7 +35,7 @@ or `inet6-ssl` is given.
 
 ## Elasticsearch
 
-To configure how the proxy should access Elasticsearch, define a section called
+To configure how ELK Armor should access Elasticsearch, define a section called
 `elasticsearch` which accepts the following options:
 
 ````
@@ -48,7 +48,7 @@ baseurl = /elasticsearch    ; Default is "/"
 
 ## LDAP
 
-The proxy requires a ActiveDirectory server to fetch a user's groups from. To
+ELK Armor requires a ActiveDirectory server to fetch a user's groups from. To
 configure this, define a section called `ldap` which accepts the following
 options:
 
