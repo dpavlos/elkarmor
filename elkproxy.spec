@@ -42,7 +42,7 @@ specific data.
 %{__python2} setup.py install --prefix=%{_prefix} --root=%{buildroot}
 mkdir -p %{buildroot}%{_initddir}
 mkdir -p %{buildroot}%{configdir}
-cp elkproxy.init %{buildroot}%{_initddir}/%{name}
+cp elkarmor.init %{buildroot}%{_initddir}/%{name}
 cp etc/elkproxy.ini %{buildroot}%{configdir}/config.ini
 cp etc/restrictions.ini %{buildroot}%{configdir}/restrictions.ini
 

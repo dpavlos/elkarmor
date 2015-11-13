@@ -44,7 +44,7 @@ python setup.py install
 The next step is to install the System V init script.
 
 ````
-install -m 0744 elkproxy.init /etc/rc.d/init.d/elkproxy
+install -m 0744 elkarmor.init /etc/rc.d/init.d/elkproxy
 chkconfig --add elkproxy
 ````
 
