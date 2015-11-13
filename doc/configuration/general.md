@@ -9,13 +9,13 @@ It is possible to log messages to syslog or a local file. The section is called
 [log]
 type = syslog       ; "file" or "syslog"
 level = error       ; "crit", "err", "warn", "info" or "debug"
-prefix = elkproxy
-;path = /var/log/elkproxy/elkproxy.log
+prefix = elkarmor
+;path = /var/log/elkarmor/elkarmor.log
 ````
 
 ## Network
 
-To configure how the proxy will listen for incoming requests, define a section
+To configure how ELK Armor will listen for incoming requests, define a section
 called `netio` which accepts the following options:
 
 ````
@@ -35,7 +35,7 @@ or `inet6-ssl` is given.
 
 ## Elasticsearch
 
-To configure how the proxy should access Elasticsearch, define a section called
+To configure how ELK Armor should access Elasticsearch, define a section called
 `elasticsearch` which accepts the following options:
 
 ````
@@ -48,7 +48,7 @@ baseurl = /elasticsearch    ; Default is "/"
 
 ## LDAP
 
-The proxy requires a ActiveDirectory server to fetch a user's groups from. To
+ELK Armor requires a ActiveDirectory server to fetch a user's groups from. To
 configure this, define a section called `ldap` which accepts the following
 options:
 

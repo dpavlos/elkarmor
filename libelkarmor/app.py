@@ -24,7 +24,7 @@ from cStringIO import StringIO
 from datetime import datetime
 from random import randint
 from types import NoneType
-from libelkproxy import util_json
+from libelkarmor import util_json
 from .util import ifilter_bool, istrip, normalize_pattern, SimplePattern
 
 from ldap import LDAPError
@@ -33,23 +33,23 @@ from ldap import LDAPError
 __all__ = ['app']
 
 
-class ELKProxyAppInternalException(Exception):
+class ELKArmorAppInternalException(Exception):
     pass
 
 
-class RequestedAsterisk(ELKProxyAppInternalException):
+class RequestedAsterisk(ELKArmorAppInternalException):
     pass
 
 
-class InvalidAPICall(ELKProxyAppInternalException):
+class InvalidAPICall(ELKArmorAppInternalException):
     pass
 
 
-class InvalidJSON(ELKProxyAppInternalException):
+class InvalidJSON(ELKArmorAppInternalException):
     pass
 
 
-class AssertJSONTypeFailure(ELKProxyAppInternalException):
+class AssertJSONTypeFailure(ELKArmorAppInternalException):
     def __init__(self, whole, target, json_types):
         super(AssertJSONTypeFailure, self).__init__()
         self.whole = whole
@@ -57,7 +57,7 @@ class AssertJSONTypeFailure(ELKProxyAppInternalException):
         self.json_types = json_types
 
 
-class NoChkIndices(ELKProxyAppInternalException):
+class NoChkIndices(ELKArmorAppInternalException):
     pass
 
 
@@ -114,7 +114,7 @@ http_basic_auth_header = re.compile(r'Basic\s+(\S*)(?!.)', re.I)
 
 
 def app(environ, start_response):
-    elkenv = environ['elkproxy']
+    elkenv = environ['elkarmor']
     logger = elkenv['logger']
     now = datetime.now()
     uniq_prefix = '[request {0:08x}{1:08x}]'.format(

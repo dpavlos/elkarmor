@@ -2,7 +2,7 @@
 
 ## Overview
 
-The configuration is stored in `/etc/elkproxy` by default (depending on your
+The configuration is stored in `/etc/elkarmor` by default (depending on your
 config setup).
 
   Location | File                                              | Description

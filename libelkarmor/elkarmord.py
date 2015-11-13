@@ -34,7 +34,7 @@ from .app import *
 
 
 DEVNULL = open(os.devnull, 'r+b')
-DEFAULT_LOGIDENT = 'elkproxy'
+DEFAULT_LOGIDENT = 'elkarmor'
 DEFAULT_LOGLEVEL = logging.INFO
 
 log_lvl = {
@@ -46,31 +46,31 @@ log_lvl = {
 }
 
 
-class ELKProxyConfigError(Exception):
+class ELKArmorConfigError(Exception):
     pass
 
 
-class ELKProxyConfigNetIOError(ELKProxyConfigError):
+class ELKArmorConfigNetIOError(ELKArmorConfigError):
     pass
 
 
-class ELKProxyConfigLDAPError(ELKProxyConfigError):
+class ELKArmorConfigLDAPError(ELKArmorConfigError):
     pass
 
 
-class ELKProxyConfigElasticsearchError(ELKProxyConfigError):
+class ELKArmorConfigElasticsearchError(ELKArmorConfigError):
     pass
 
 
-class ELKProxyConfigLogError(ELKProxyConfigError):
+class ELKArmorConfigLogError(ELKArmorConfigError):
     pass
 
 
-class ELKProxyConfigRestrictionsError(ELKProxyConfigError):
+class ELKArmorConfigRestrictionsError(ELKArmorConfigError):
     pass
 
 
-class ELKProxyNoListen(Exception):
+class ELKArmorNoListen(Exception):
     pass
 
 
@@ -164,8 +164,8 @@ class LDAPBackend(object):
         return memberships
 
 
-class ELKProxyDaemon(UnixDaemon):
-    name = 'ELK Proxy'
+class ELKArmorDaemon(UnixDaemon):
+    name = 'ELK Armor'
 
     _cfg_opt_url_rgx = re.compile(r'\Aurl_(?:(begin|end|full)_)?')
     _cfg_opt_url_switch = {None: '{0}', 'begin': r'\A{0}', 'end': r'{0}\Z', 'full': r'\A{0}\Z'}
@@ -176,7 +176,7 @@ class ELKProxyDaemon(UnixDaemon):
         self._elkenv = {}
         self._servers = []
         self._threads = []
-        super(ELKProxyDaemon, self).__init__(*args, **kwargs)
+        super(ELKArmorDaemon, self).__init__(*args, **kwargs)
 
     def _load_config_file(self, filename, defaults = None):
         filepath = os.path.join(os.path.abspath(self._cfgdir), filename + '.ini')
@@ -186,12 +186,12 @@ class ELKProxyDaemon(UnixDaemon):
             with open(filepath) as f:
                 config.readfp(f, filename)
         except ConfigParserError as error:
-            raise ELKProxyConfigError(
+            raise ELKArmorConfigError(
                 "The config file {0} is syntactically invalid: {1}"
                 "".format(filepath, error))
         except IOError as error:
             if defaults is None:
-                raise ELKProxyConfigError(
+                raise ELKArmorConfigError(
                     "The config file {0} doesn't exist or isn't readable: {1}"
                     "".format(filepath, error))
 
@@ -217,7 +217,7 @@ class ELKProxyDaemon(UnixDaemon):
             try:
                 log_handler = FileHandler(logging_cfg['path'], logging_cfg['prefix'])
             except IOError as e:
-                raise ELKProxyConfigLogError("the log file {0!r} isn't writable: {1!s}".format(logging_cfg['path'], e))
+                raise ELKArmorConfigLogError("the log file {0!r} isn't writable: {1!s}".format(logging_cfg['path'], e))
         else:
             log_handler = SysLogHandler(logging_cfg['prefix'])
 
@@ -241,7 +241,7 @@ class ELKProxyDaemon(UnixDaemon):
 
         try:
             if not cfg:
-                raise ELKProxyNoListen()
+                raise ELKArmorNoListen()
 
             rAddr = re.compile(r'(.+):(\d+)(?!.)')
             rAddr6 = re.compile(r'\[(.+)\](?!.)')
@@ -254,7 +254,7 @@ class ELKProxyDaemon(UnixDaemon):
                     for addr in ifilter_bool(istrip(parse_split(cfg.pop('inet{0}{1}'.format(afs, SSL), ''), ','))):
                         m = rAddr.match(addr)
                         if not m:
-                            raise ELKProxyConfigNetIOError(
+                            raise ELKArmorConfigNetIOError(
                                 'invalid address to listen on: {0!r} (must be ip:port)'.format(addr)
                             )
 
@@ -262,7 +262,7 @@ class ELKProxyDaemon(UnixDaemon):
                         try:
                             port = validate_portnum(port)
                         except ValueError:
-                            raise ELKProxyConfigNetIOError(
+                            raise ELKArmorConfigNetIOError(
                                 'invalid port number to listen on (in address {1!r}): {0!r}'
                                 ' (must be a decimal number between 0 and 65535)'.format(port, addr)
                             )
@@ -273,7 +273,7 @@ class ELKProxyDaemon(UnixDaemon):
                             ))))
 
                             if not addrs:
-                                raise ELKProxyConfigNetIOError('IPv{0} is not available on any interface'.format(afn))
+                                raise ELKArmorConfigNetIOError('IPv{0} is not available on any interface'.format(afn))
                         else:
                             allowIP = allowIFace = True
                             if af == AF_INET6:
@@ -286,7 +286,7 @@ class ELKProxyDaemon(UnixDaemon):
 
                             if allowIFace and ip in resolve:
                                 if af not in resolve[ip]:
-                                    raise ELKProxyConfigNetIOError(
+                                    raise ELKArmorConfigNetIOError(
                                         'IPv{0} is not available on interface {1}'.format(afn, ip)
                                     )
 
@@ -295,9 +295,9 @@ class ELKProxyDaemon(UnixDaemon):
                                 try:
                                     ip = normalize_ip(af, ip)
                                 except ValueError:
-                                    raise ELKProxyConfigNetIOError("{0!r} isn't a valid IPv{1} address".format(ip, afn))
+                                    raise ELKArmorConfigNetIOError("{0!r} isn't a valid IPv{1} address".format(ip, afn))
                             else:
-                                raise ELKProxyConfigNetIOError(
+                                raise ELKArmorConfigNetIOError(
                                     "{0!r} is neither a valid IPv{1} address"
                                     " nor an existing interface's name".format(ip, afn)
                                 )
@@ -308,7 +308,7 @@ class ELKProxyDaemon(UnixDaemon):
 
                         for (ip, port) in addrs:
                             if (ip, port) in listen[af]:
-                                raise ELKProxyConfigNetIOError(
+                                raise ELKArmorConfigNetIOError(
                                     '{0}:{1} is configured to listen on more than once'.format(ip, port)
                                 )
 
@@ -317,14 +317,14 @@ class ELKProxyDaemon(UnixDaemon):
                     del listen[af]
 
             if not listen:
-                raise ELKProxyNoListen()
-        except ELKProxyNoListen:
-            raise ELKProxyConfigNetIOError('no IP addresses are configured to listen on')
+                raise ELKArmorNoListen()
+        except ELKArmorNoListen:
+            raise ELKArmorConfigNetIOError('no IP addresses are configured to listen on')
 
         if any((
             SSL for af in listen.itervalues() for SSL in af.itervalues()
         )) and not any(netio['sslargs'].itervalues()):
-            raise ELKProxyConfigNetIOError(
+            raise ELKArmorConfigNetIOError(
                 'some IP addresses are configured to listen on with SSL,'
                 ' but the required options for using SSL are missing'
             )
@@ -346,12 +346,12 @@ class ELKProxyDaemon(UnixDaemon):
         try:
             config['group_base_dn'] = cfg['group_base_dn']
         except KeyError:
-            raise ELKProxyConfigLDAPError('config option "group_base_dn" is required')
+            raise ELKArmorConfigLDAPError('config option "group_base_dn" is required')
 
         try:
             config['user_base_dn'] = cfg['user_base_dn']
         except KeyError:
-            raise ELKProxyConfigLDAPError('config option "user_base_dn" is required')
+            raise ELKArmorConfigLDAPError('config option "user_base_dn" is required')
 
         return config
 
@@ -366,7 +366,7 @@ class ELKProxyDaemon(UnixDaemon):
         try:
             elsrch = {'host': validate_hostname(host)[1]}
         except SocketError:
-            raise ELKProxyConfigElasticsearchError('invalid hostname: {0!r}'.format(host))
+            raise ELKArmorConfigElasticsearchError('invalid hostname: {0!r}'.format(host))
 
         # Protocol
 
@@ -375,7 +375,7 @@ class ELKProxyDaemon(UnixDaemon):
         try:
             elsrch['https'] = {'http': False, 'https': True}[protocol]
         except KeyError:
-            raise ELKProxyConfigElasticsearchError(
+            raise ELKArmorConfigElasticsearchError(
                 'invalid protocol: {0!r} (must be one of the following: http, https)'.format(protocol)
             )
 
@@ -386,7 +386,7 @@ class ELKProxyDaemon(UnixDaemon):
         try:
             elsrch['port'] = validate_portnum(port)
         except ValueError:
-            raise ELKProxyConfigElasticsearchError(
+            raise ELKArmorConfigElasticsearchError(
                 'invalid port number: {0!r} (must be a decimal number between 0 and 65535)'.format(port)
             )
 
@@ -405,14 +405,14 @@ class ELKProxyDaemon(UnixDaemon):
         for (k, opts) in (('type', ('file', 'syslog')), ('level', tuple(log_lvl))):
             logging_cfg[k] = v = cfg.pop(k, '').strip()
             if v not in opts:
-                raise ELKProxyConfigLogError(
+                raise ELKArmorConfigLogError(
                     'invalid logging {0}: {1!r} (must be one of the following: {2})'.format(k, v, ', '.join(opts))
                 )
 
         if logging_cfg['type'] == 'file':
             logging_cfg['path'] = fpath = cfg.pop('path', '')
             if not fpath:
-                raise ELKProxyConfigLogError("the logging type is 'file', but no file is configured to log into")
+                raise ELKArmorConfigLogError("the logging type is 'file', but no file is configured to log into")
 
         logging_cfg['prefix'] = cfg.pop('prefix', '').strip() or DEFAULT_LOGIDENT
 
@@ -424,7 +424,7 @@ class ELKProxyDaemon(UnixDaemon):
         for t in self._threads:
             t.join()
         logging.shutdown()
-        super(ELKProxyDaemon, self).cleanup()
+        super(ELKArmorDaemon, self).cleanup()
 
     def _parse_restrictions(self, cfg_restrictions):
         raw_restrictions = []
@@ -517,7 +517,7 @@ class ELKProxyDaemon(UnixDaemon):
                             else:
                                 permitted_urls[opt][v] = compiled_urls
         except re.error as e:
-            raise ELKProxyConfigRestrictionsError(
+            raise ELKArmorConfigRestrictionsError(
                 'invalid regular expression for matching a URL ({0!r}): {1!s}'.format(bad_url, e)
             )
 
@@ -562,7 +562,7 @@ class ELKProxyDaemon(UnixDaemon):
             return lambda *args, **kwargs: (HTTPSServer if SSL else HTTPServer)(*args, **dict(itertools.chain(
                 kwargs.iteritems(),
                 sslargs.iteritems() if SSL else (),
-                (('address_family', address_family), ('wsgi_env', {'elkproxy': self._elkenv}))
+                (('address_family', address_family), ('wsgi_env', {'elkarmor': self._elkenv}))
             )))
 
         for (af, listen) in self._cfg['netio']['listen'].iteritems():
@@ -606,23 +606,23 @@ def main():
         if option_group.title == 'Start and stop':
             option_group.add_option(
                 '-c', '--cfgdir',
-                dest='cfgdir', metavar='DIR', default='/etc/elkproxy', help='read configuration from directory DIR'
+                dest='cfgdir', metavar='DIR', default='/etc/elkarmor', help='read configuration from directory DIR'
             )
             break
     opts, args = parser.parse_args()
     try:
         return getattr(
-            ELKProxyDaemon(**dict(itertools.ifilter((lambda x: x[1] is not None), vars(opts).iteritems()))),
+            ELKArmorDaemon(**dict(itertools.ifilter((lambda x: x[1] is not None), vars(opts).iteritems()))),
             args[0]
         )()
-    except ELKProxyConfigError as e:
+    except ELKArmorConfigError as e:
         try:
             area = {
-                ELKProxyConfigNetIOError: 'network I/O',
-                ELKProxyConfigLDAPError: 'LDAP',
-                ELKProxyConfigElasticsearchError: 'Elasticsearch',
-                ELKProxyConfigLogError: 'logging',
-                ELKProxyConfigRestrictionsError: 'restrictions'
+                ELKArmorConfigNetIOError: 'network I/O',
+                ELKArmorConfigLDAPError: 'LDAP',
+                ELKArmorConfigElasticsearchError: 'Elasticsearch',
+                ELKArmorConfigLogError: 'logging',
+                ELKArmorConfigRestrictionsError: 'restrictions'
             }[type(e)]
         except KeyError:
             return 'Could not evaluate configuration: {0!s}'.format(e)

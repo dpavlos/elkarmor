@@ -3,13 +3,13 @@
 
 %define revision 1
 
-Name:       elkproxy
+Name:       elkarmor
 Version:    0.0
 Release:    %{revision}%{?dist}
 Summary:    Transparent proxy for securing Elasticsearch
 Group:      System Environment/Daemons
 License:    GPLv2+
-URL:        https://project.netways.de/projects/elk-proxy
+URL:        https://www.netways.org/projects/elkarmor
 Source0:    %{name}-%{version}.tar.gz
 Vendor:     NETWAYS GmbH <info@netways.de>
 Packager:   NETWAYS GmbH <info@netways.de>
@@ -29,7 +29,7 @@ Requires:           python-netifaces
 
 
 %description
-The ELK Proxy is a transparent HTTP proxy for securing
+The ELK Armor is a transparent HTTP proxy for securing
 Elasticsearch by permitting specific users to access only
 specific data.
 
@@ -42,8 +42,8 @@ specific data.
 %{__python2} setup.py install --prefix=%{_prefix} --root=%{buildroot}
 mkdir -p %{buildroot}%{_initddir}
 mkdir -p %{buildroot}%{configdir}
-cp elkproxy.init %{buildroot}%{_initddir}/%{name}
-cp etc/elkproxy.ini %{buildroot}%{configdir}/config.ini
+cp elkarmor.init %{buildroot}%{_initddir}/%{name}
+cp etc/elkarmor.ini %{buildroot}%{configdir}/config.ini
 cp etc/restrictions.ini %{buildroot}%{configdir}/restrictions.ini
 
 %post

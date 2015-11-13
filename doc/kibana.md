@@ -1,6 +1,6 @@
-# <a id="kibana"></a> Using the ELK Proxy with Kibana
+# <a id="kibana"></a> Using the ELK Armor with Kibana
 
-The ELK Proxy is designed to work with Kibana, but several things must be taken care of.
+The ELK Armor is designed to work with Kibana, but several things must be taken care of.
 
 ## Proxy chain
 
@@ -16,11 +16,11 @@ It must not forward anonymous requests!
 
 Since version 4 Kibana provides its own web server and reverse proxy.
 Depending on the URL it either processes the request itself or forwards it to Elasticsearch.
-It shall be configured to forward requests to the ELK Proxy, not to Elasticsearch.
+It shall be configured to forward requests to the ELK Armor, not to Elasticsearch.
 
-### ELK Proxy
+### ELK Armor
 
-The ELK Proxy restricts users/groups as configured and forwards non-restricted requests to Elasticsearch.
+The ELK Armor restricts users/groups as configured and forwards non-restricted requests to Elasticsearch.
 
 ## Restrictions
 

@@ -63,31 +63,31 @@ yumrepo { 'elasticsearch-1.7':
 }
 
 
-# ELK Proxy
+# ELK Armor
 
-file { 'elkproxy-pid':
-  path => '/var/run/elkproxy.pid',
+file { 'elkarmor-pid':
+  path => '/var/run/elkarmor.pid',
   ensure => file,
 }
 
-file { '/etc/elkproxy':
+file { '/etc/elkarmor':
   ensure => directory,
 }
--> file { 'elkproxy-cfg':
-  path => '/etc/elkproxy/config.ini',
+-> file { 'elkarmor-cfg':
+  path => '/etc/elkarmor/config.ini',
   ensure => file,
-  source => '/vagrant/.puppet/files/elkproxy.ini',
+  source => '/vagrant/.puppet/files/elkarmor.ini',
   replace => false,
   links => follow,
 }
 
-file { 'elkproxy-cfg-restrictions':
-  path => '/etc/elkproxy/restrictions.ini',
+file { 'elkarmor-cfg-restrictions':
+  path => '/etc/elkarmor/restrictions.ini',
   ensure => file,
-  source => '/vagrant/.puppet/files/elkproxy-restrictions.ini',
+  source => '/vagrant/.puppet/files/elkarmor-restrictions.ini',
   replace => false,
   links => follow,
-  require => File['/etc/elkproxy'],
+  require => File['/etc/elkarmor'],
 }
 
 exec { 'epel':
@@ -96,17 +96,17 @@ exec { 'epel':
   timeout => 0,
 }
 -> package { [ 'python-netifaces', 'python-ldap' ]: }
--> file { '/usr/lib/python2.6/site-packages/libelkproxy':
+-> file { '/usr/lib/python2.6/site-packages/libelkarmor':
   ensure => link,
-  target => '/vagrant/libelkproxy',
+  target => '/vagrant/libelkarmor',
 }
--> file { '/etc/rc.d/init.d/elkproxy':
+-> file { '/etc/rc.d/init.d/elkarmor':
   ensure => file,
-  source => '/vagrant/.puppet/files/init.d-elkproxy',
+  source => '/vagrant/.puppet/files/init.d-elkarmor',
   mode => '0744',
-  require => File[['elkproxy-pid', 'elkproxy-cfg', 'elkproxy-cfg-restrictions']],
+  require => File[['elkarmor-pid', 'elkarmor-cfg', 'elkarmor-cfg-restrictions']],
 }
--> service { 'elkproxy':
+-> service { 'elkarmor':
   ensure => running,
   enable => true,
 }
@@ -142,7 +142,7 @@ file { 'init.d-kibana':
 -> service { 'kibana':
   ensure => running,
   enable => true,
-  require => [ Exec['kibana-chcfg'], Service['elkproxy'] ],
+  require => [ Exec['kibana-chcfg'], Service['elkarmor'] ],
 }
 
 
