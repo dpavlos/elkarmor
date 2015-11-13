@@ -70,7 +70,7 @@ class ELKArmorConfigRestrictionsError(ELKArmorConfigError):
     pass
 
 
-class ELKProxyNoListen(Exception):
+class ELKArmorNoListen(Exception):
     pass
 
 
@@ -241,7 +241,7 @@ class ELKProxyDaemon(UnixDaemon):
 
         try:
             if not cfg:
-                raise ELKProxyNoListen()
+                raise ELKArmorNoListen()
 
             rAddr = re.compile(r'(.+):(\d+)(?!.)')
             rAddr6 = re.compile(r'\[(.+)\](?!.)')
@@ -317,8 +317,8 @@ class ELKProxyDaemon(UnixDaemon):
                     del listen[af]
 
             if not listen:
-                raise ELKProxyNoListen()
-        except ELKProxyNoListen:
+                raise ELKArmorNoListen()
+        except ELKArmorNoListen:
             raise ELKArmorConfigNetIOError('no IP addresses are configured to listen on')
 
         if any((
