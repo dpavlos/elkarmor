@@ -45,3 +45,24 @@ url_begin_1=_(?:nodes|cluster)(?:/|\?|\Z)
 
 Before users with only read access to the .kibana index can use Kibana,
 a user with full access to the .kibana index has to access the Kibana interface once.
+
+## Requests from Kibana to Elasticsearch
+
+GET /
+GET /_cluster
+Gets some basic info about the Elasticsearch cluster.
+
+GET /_nodes
+Gets some info about the cluster's nodes.
+
+### .kibana index
+
+Kibana stores all interface-related stuff here. E.g.:
+
+  type          | description
+  --------------|---------------------------------
+  config        | Kibana configuration
+  index-pattern | index patterns e.g. "logstash-*"
+  search        | saved searches
+  visualization | visualizations of saved searches
+  dashboard     | dashboards with visualizations
