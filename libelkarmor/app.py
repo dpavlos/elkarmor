@@ -24,7 +24,7 @@ from cStringIO import StringIO
 from datetime import datetime
 from random import randint
 from types import NoneType
-from libelkproxy import util_json
+from libelkarmor import util_json
 from .util import ifilter_bool, istrip, normalize_pattern, SimplePattern
 
 from ldap import LDAPError

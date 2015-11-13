@@ -96,9 +96,9 @@ exec { 'epel':
   timeout => 0,
 }
 -> package { [ 'python-netifaces', 'python-ldap' ]: }
--> file { '/usr/lib/python2.6/site-packages/libelkproxy':
+-> file { '/usr/lib/python2.6/site-packages/libelkarmor':
   ensure => link,
-  target => '/vagrant/libelkproxy',
+  target => '/vagrant/libelkarmor',
 }
 -> file { '/etc/rc.d/init.d/elkarmor':
   ensure => file,

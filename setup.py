@@ -11,6 +11,6 @@ setup(
     long_description='The ELK Proxy is a transparent HTTP proxy for securing '
                      'Elasticsearch by permitting specific users to access only '
                      'specific data.',
-    packages=['libelkproxy'],
+    packages=['libelkarmor'],
     zip_safe=False
 )
