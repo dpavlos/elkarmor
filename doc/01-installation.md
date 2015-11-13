@@ -51,7 +51,7 @@ chkconfig --add elkarmor
 Finally install the example configuration.
 
 ````
-install -d -m 0700 /etc/elkproxy
-install -m 0600 etc/elkproxy.ini /etc/elkproxy/config.ini
+install -d -m 0700 /etc/elkarmor
+install -m 0600 etc/elkproxy.ini /etc/elkarmor/config.ini
 ````
 

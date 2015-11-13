@@ -70,24 +70,24 @@ file { 'elkarmor-pid':
   ensure => file,
 }
 
-file { '/etc/elkproxy':
+file { '/etc/elkarmor':
   ensure => directory,
 }
--> file { 'elkproxy-cfg':
-  path => '/etc/elkproxy/config.ini',
+-> file { 'elkarmor-cfg':
+  path => '/etc/elkarmor/config.ini',
   ensure => file,
-  source => '/vagrant/.puppet/files/elkproxy.ini',
+  source => '/vagrant/.puppet/files/elkarmor.ini',
   replace => false,
   links => follow,
 }
 
-file { 'elkproxy-cfg-restrictions':
-  path => '/etc/elkproxy/restrictions.ini',
+file { 'elkarmor-cfg-restrictions':
+  path => '/etc/elkarmor/restrictions.ini',
   ensure => file,
-  source => '/vagrant/.puppet/files/elkproxy-restrictions.ini',
+  source => '/vagrant/.puppet/files/elkarmor-restrictions.ini',
   replace => false,
   links => follow,
-  require => File['/etc/elkproxy'],
+  require => File['/etc/elkarmor'],
 }
 
 exec { 'epel':
@@ -104,7 +104,7 @@ exec { 'epel':
   ensure => file,
   source => '/vagrant/.puppet/files/init.d-elkarmor',
   mode => '0744',
-  require => File[['elkarmor-pid', 'elkproxy-cfg', 'elkproxy-cfg-restrictions']],
+  require => File[['elkarmor-pid', 'elkarmor-cfg', 'elkarmor-cfg-restrictions']],
 }
 -> service { 'elkarmor':
   ensure => running,

@@ -606,7 +606,7 @@ def main():
         if option_group.title == 'Start and stop':
             option_group.add_option(
                 '-c', '--cfgdir',
-                dest='cfgdir', metavar='DIR', default='/etc/elkproxy', help='read configuration from directory DIR'
+                dest='cfgdir', metavar='DIR', default='/etc/elkarmor', help='read configuration from directory DIR'
             )
             break
     opts, args = parser.parse_args()
