@@ -43,7 +43,7 @@ specific data.
 mkdir -p %{buildroot}%{_initddir}
 mkdir -p %{buildroot}%{configdir}
 cp elkarmor.init %{buildroot}%{_initddir}/%{name}
-cp etc/elkproxy.ini %{buildroot}%{configdir}/config.ini
+cp etc/elkarmor.ini %{buildroot}%{configdir}/config.ini
 cp etc/restrictions.ini %{buildroot}%{configdir}/restrictions.ini
 
 %post
