@@ -164,8 +164,8 @@ class LDAPBackend(object):
         return memberships
 
 
-class ELKProxyDaemon(UnixDaemon):
-    name = 'ELK Proxy'
+class ELKArmorDaemon(UnixDaemon):
+    name = 'ELK Armor'
 
     _cfg_opt_url_rgx = re.compile(r'\Aurl_(?:(begin|end|full)_)?')
     _cfg_opt_url_switch = {None: '{0}', 'begin': r'\A{0}', 'end': r'{0}\Z', 'full': r'\A{0}\Z'}
@@ -176,7 +176,7 @@ class ELKProxyDaemon(UnixDaemon):
         self._elkenv = {}
         self._servers = []
         self._threads = []
-        super(ELKProxyDaemon, self).__init__(*args, **kwargs)
+        super(ELKArmorDaemon, self).__init__(*args, **kwargs)
 
     def _load_config_file(self, filename, defaults = None):
         filepath = os.path.join(os.path.abspath(self._cfgdir), filename + '.ini')
@@ -424,7 +424,7 @@ class ELKProxyDaemon(UnixDaemon):
         for t in self._threads:
             t.join()
         logging.shutdown()
-        super(ELKProxyDaemon, self).cleanup()
+        super(ELKArmorDaemon, self).cleanup()
 
     def _parse_restrictions(self, cfg_restrictions):
         raw_restrictions = []
@@ -612,7 +612,7 @@ def main():
     opts, args = parser.parse_args()
     try:
         return getattr(
-            ELKProxyDaemon(**dict(itertools.ifilter((lambda x: x[1] is not None), vars(opts).iteritems()))),
+            ELKArmorDaemon(**dict(itertools.ifilter((lambda x: x[1] is not None), vars(opts).iteritems()))),
             args[0]
         )()
     except ELKArmorConfigError as e:
