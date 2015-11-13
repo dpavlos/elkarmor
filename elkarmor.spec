@@ -4,7 +4,7 @@
 %define revision 1
 
 Name:       elkarmor
-Version:    0.0
+Version:    1.0
 Release:    %{revision}%{?dist}
 Summary:    Transparent proxy for securing Elasticsearch
 Group:      System Environment/Daemons
