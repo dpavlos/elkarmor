@@ -100,13 +100,13 @@ exec { 'epel':
   ensure => link,
   target => '/vagrant/libelkproxy',
 }
--> file { '/etc/rc.d/init.d/elkproxy':
+-> file { '/etc/rc.d/init.d/elkarmor':
   ensure => file,
   source => '/vagrant/.puppet/files/init.d-elkarmor',
   mode => '0744',
   require => File[['elkarmor-pid', 'elkproxy-cfg', 'elkproxy-cfg-restrictions']],
 }
--> service { 'elkproxy':
+-> service { 'elkarmor':
   ensure => running,
   enable => true,
 }
@@ -142,7 +142,7 @@ file { 'init.d-kibana':
 -> service { 'kibana':
   ensure => running,
   enable => true,
-  require => [ Exec['kibana-chcfg'], Service['elkproxy'] ],
+  require => [ Exec['kibana-chcfg'], Service['elkarmor'] ],
 }
 
 
