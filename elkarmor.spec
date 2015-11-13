@@ -29,7 +29,7 @@ Requires:           python-netifaces
 
 
 %description
-The ELK Proxy is a transparent HTTP proxy for securing
+The ELK Armor is a transparent HTTP proxy for securing
 Elasticsearch by permitting specific users to access only
 specific data.
 

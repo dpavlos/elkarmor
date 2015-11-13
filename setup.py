@@ -8,7 +8,7 @@ setup(
     description='a transparent proxy for securing Elasticsearch',
     license='GPLv2+',
     url='https://project.netways.de/projects/elk-proxy',
-    long_description='The ELK Proxy is a transparent HTTP proxy for securing '
+    long_description='The ELK Armor is a transparent HTTP proxy for securing '
                      'Elasticsearch by permitting specific users to access only '
                      'specific data.',
     packages=['libelkarmor'],

@@ -63,7 +63,7 @@ yumrepo { 'elasticsearch-1.7':
 }
 
 
-# ELK Proxy
+# ELK Armor
 
 file { 'elkarmor-pid':
   path => '/var/run/elkarmor.pid',

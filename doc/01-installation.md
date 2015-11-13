@@ -1,28 +1,28 @@
 # Installation
 
-The preferred way of installing ELK Proxy is to use packages depending on which operating
-system and distribution you are running. But it is also possible to install ELK Proxy directly from source.
+The preferred way of installing ELK Armor is to use packages depending on which operating
+system and distribution you are running. But it is also possible to install ELK Armor directly from source.
 
 ## <a id="installing-requirements"></a> Installing Requirements
 
 * A web server, e.g. Apache or nginx
 * Python2 >= 2.6
 * python-netifaces and python-ldap libraries
-* python-setuptools if you're installing ELK Proxy from source
+* python-setuptools if you're installing ELK Armor from source
 
-## Installing ELK Proxy from Package
+## Installing ELK Armor from Package
 
 > Please note that there is no official package repository yet.
-> RPMs for ELK Proxy are provided by [NETWAYS](https://www.netways.de/).
+> RPMs for ELK Armor are provided by [NETWAYS](https://www.netways.de/).
 
 Example for RPM-based Linux distributions:
 ````
 rpm -Uvh elkarmor.rpm
 ````
 
-## Installing ELK Proxy from Source
+## Installing ELK Armor from Source
 
-Although the preferred way of installing ELK Proxy is to use packages, it is also possible to install ELK Proxy
+Although the preferred way of installing ELK Armor is to use packages, it is also possible to install ELK Armor
 directly from source. The source tarball is provided by [NETWAYS](https://www.netways.de/).
 
 All of the steps bellow assume that you are root.
@@ -34,7 +34,7 @@ tar xzf elkarmor.tar.gz
 cd elkarmor
 ````
 
-After that you have to call the Python `setup.py` script for installing ELK Proxy into Python's standard directory for
+After that you have to call the Python `setup.py` script for installing ELK Armor into Python's standard directory for
 modules.
 
 ````
