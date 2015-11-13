@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(
-    name='elkproxy',
+    name='elkarmor',
     version='0.0',
     author='NETWAYS GmbH',
     author_email='info@netways.de',

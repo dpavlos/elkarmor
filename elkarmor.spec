@@ -3,7 +3,7 @@
 
 %define revision 1
 
-Name:       elkproxy
+Name:       elkarmor
 Version:    0.0
 Release:    %{revision}%{?dist}
 Summary:    Transparent proxy for securing Elasticsearch

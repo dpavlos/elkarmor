@@ -17,7 +17,7 @@ system and distribution you are running. But it is also possible to install ELK 
 
 Example for RPM-based Linux distributions:
 ````
-rpm -Uvh elkproxy.rpm
+rpm -Uvh elkarmor.rpm
 ````
 
 ## Installing ELK Proxy from Source
@@ -30,8 +30,8 @@ All of the steps bellow assume that you are root.
 First of all, you need to extract the source tarball and change into the extracted directory.
 
 ````
-tar xzf elkproxy.tar.gz
-cd elkproxy
+tar xzf elkarmor.tar.gz
+cd elkarmor
 ````
 
 After that you have to call the Python `setup.py` script for installing ELK Proxy into Python's standard directory for
