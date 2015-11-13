@@ -33,23 +33,23 @@ from ldap import LDAPError
 __all__ = ['app']
 
 
-class ELKProxyAppInternalException(Exception):
+class ELKArmorAppInternalException(Exception):
     pass
 
 
-class RequestedAsterisk(ELKProxyAppInternalException):
+class RequestedAsterisk(ELKArmorAppInternalException):
     pass
 
 
-class InvalidAPICall(ELKProxyAppInternalException):
+class InvalidAPICall(ELKArmorAppInternalException):
     pass
 
 
-class InvalidJSON(ELKProxyAppInternalException):
+class InvalidJSON(ELKArmorAppInternalException):
     pass
 
 
-class AssertJSONTypeFailure(ELKProxyAppInternalException):
+class AssertJSONTypeFailure(ELKArmorAppInternalException):
     def __init__(self, whole, target, json_types):
         super(AssertJSONTypeFailure, self).__init__()
         self.whole = whole
@@ -57,7 +57,7 @@ class AssertJSONTypeFailure(ELKProxyAppInternalException):
         self.json_types = json_types
 
 
-class NoChkIndices(ELKProxyAppInternalException):
+class NoChkIndices(ELKArmorAppInternalException):
     pass
 
 
