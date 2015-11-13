@@ -426,6 +426,14 @@ class ELKArmorDaemon(UnixDaemon):
                 p.terminate()
             for p in self._processes:
                 p.join()
+        else:
+            # We are a server process -- wait for all children
+            try:
+                while True:
+                    os.wait()
+            except OSError:
+                # No child processes to wait for
+                pass
 
         logging.shutdown()
         super(ELKArmorDaemon, self).cleanup()

@@ -15,6 +15,7 @@
 
 
 from socket import AF_INET
+from SocketServer import ForkingMixIn
 from wsgiref.simple_server import WSGIServer
 from ssl import wrap_socket, CERT_NONE
 
@@ -22,7 +23,11 @@ from ssl import wrap_socket, CERT_NONE
 __all__ = ['HTTPServer', 'HTTPSServer']
 
 
-class HTTPServer(WSGIServer):
+class ForkingWSGIServer(ForkingMixIn, WSGIServer):
+    pass
+
+
+class HTTPServer(ForkingWSGIServer):
     def __init__(self, *args, **kwargs):
         for (k, d) in (('address_family', AF_INET), ('wsgi_env', {})):
             setattr(self, k, kwargs.pop(k, d))
