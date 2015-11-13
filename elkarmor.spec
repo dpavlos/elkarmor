@@ -9,7 +9,7 @@ Release:    %{revision}%{?dist}
 Summary:    Transparent proxy for securing Elasticsearch
 Group:      System Environment/Daemons
 License:    GPLv2+
-URL:        https://project.netways.de/projects/elk-proxy
+URL:        https://www.netways.org/projects/elkarmor
 Source0:    %{name}-%{version}.tar.gz
 Vendor:     NETWAYS GmbH <info@netways.de>
 Packager:   NETWAYS GmbH <info@netways.de>
