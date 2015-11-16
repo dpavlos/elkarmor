@@ -22,8 +22,8 @@ rpm -Uvh elkarmor.rpm
 
 ## Installing ELK Armor from Source
 
-Although the preferred way of installing ELK Armor is to use packages, it is also possible to install ELK Armor
-directly from source. The source tarball is provided by [NETWAYS](https://www.netways.de/).
+Although the preferred way of installing ELK Armor is to use packages,
+it is also possible to install ELK Armor directly from source.
 
 All of the steps bellow assume that you are root.
 
