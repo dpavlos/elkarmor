@@ -31,10 +31,10 @@ class HTTPServer(ForkingWSGIServer):
     def __init__(self, *args, **kwargs):
         for (k, d) in (('address_family', AF_INET), ('wsgi_env', {})):
             setattr(self, k, kwargs.pop(k, d))
-        WSGIServer.__init__(self, *args, **kwargs)
+        ForkingWSGIServer.__init__(self, *args, **kwargs)
 
     def setup_environ(self):
-        WSGIServer.setup_environ(self)
+        ForkingWSGIServer.setup_environ(self)
         for (k, v) in self.wsgi_env.iteritems():
             self.base_environ[k] = v
 
